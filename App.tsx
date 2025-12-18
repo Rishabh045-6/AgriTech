@@ -4,10 +4,12 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import HomeScreen from './screens/HomeScreen';
 import MapScreen from './screens/MapScreen';
+import ResultsScreen from './screens/ResultsScreen';
 
 export type RootStackParamList = {
   Home: undefined;
   Map: undefined;
+  Results: undefined
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -26,6 +28,10 @@ export default function App() {
           component={MapScreen}
           options={{ headerTitle: 'Draw Your Plot' }}
         />
+        <Stack.Screen
+          name="Results"
+          component={ResultsScreen}
+          options={{ headerTitle: 'Analysis Results' }} />
       </Stack.Navigator>
     </NavigationContainer>
   );

@@ -1,4 +1,3 @@
-// screens/MapScreen.tsx
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -7,15 +6,14 @@ import {
   TouchableOpacity,
   Text,
   Platform,
+  Linking,
 } from 'react-native';
 import MapView, { Polygon, Marker } from 'react-native-maps';
 import Geolocation from '@react-native-community/geolocation';
-import {
-  request,
-  PERMISSIONS,
-  RESULTS,
-} from 'react-native-permissions';
-import axios from 'axios';
+import { request, PERMISSIONS, RESULTS } from 'react-native-permissions';
+import RNFetchBlob from 'react-native-blob-util';
+import FileViewer from 'react-native-file-viewer';
+
 
 type Point = {
   latitude: number;
@@ -36,7 +34,6 @@ export default function MapScreen({ navigation }: MapScreenProps) {
   });
   const [loadingLocation, setLoadingLocation] = useState(false);
 
-  // Request location permission
   const requestLocationPermission = async () => {
     const permission =
       Platform.OS === 'android'
@@ -47,16 +44,12 @@ export default function MapScreen({ navigation }: MapScreenProps) {
     return result === RESULTS.GRANTED;
   };
 
-  // Get current location
   const getCurrentLocation = async () => {
     setLoadingLocation(true);
 
     const granted = await requestLocationPermission();
     if (!granted) {
-      Alert.alert(
-        'Permission Required',
-        'Please enable location permission in settings'
-      );
+      Alert.alert('Permission Required', 'Enable location permission');
       setLoadingLocation(false);
       return;
     }
@@ -72,19 +65,11 @@ export default function MapScreen({ navigation }: MapScreenProps) {
         });
         setLoadingLocation(false);
       },
-      (error) => {
-        console.log('GPS ERROR:', error);
-        Alert.alert(
-          'Location Error',
-          'Unable to fetch location. Make sure GPS is enabled.'
-        );
+      () => {
+        Alert.alert('Location Error', 'Unable to fetch GPS location');
         setLoadingLocation(false);
       },
-      {
-        enableHighAccuracy: true,
-        timeout: 20000,
-        maximumAge: 1000,
-      }
+      { enableHighAccuracy: true, timeout: 20000 }
     );
   };
 
@@ -97,38 +82,71 @@ export default function MapScreen({ navigation }: MapScreenProps) {
     setPoints((prev) => [...prev, { latitude, longitude }]);
   };
 
-  const handleSavePlot = async () => {
-    if (points.length < 3) {
-      Alert.alert('⚠️ Not enough points', 'Draw at least 3 points');
-      return;
+const handleSavePlot = async () => {
+  if (points.length < 3) {
+    Alert.alert('⚠️ Not enough points', 'Draw at least 3 points');
+    return;
+  }
+
+  const farmerId = `farmer_${Date.now()}`;
+
+  try {
+    const API_URL =
+      Platform.OS === 'android'
+        ? 'http://192.168.31.20:3001'
+        : 'http://localhost:3001';
+
+    // 1️⃣ Save plot to backend
+    const response = await fetch(`${API_URL}/api/save-plot`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        farmerId,
+        plotCoordinates: points.map(p => [p.latitude, p.longitude]),
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
     }
 
+    // 2️⃣ CSV URL
+    const csvUrl = `${API_URL}/api/plot-data/${farmerId}.csv`;
+
+    // 3️⃣ Try local download + open
     try {
-      const API_URL =
-        Platform.OS === 'android'
-          ? 'http://192.168.31.20:3001'
-          : 'http://localhost:3001'; // your local IP
+      const dirs = RNFetchBlob.fs.dirs;
+      const path = `${dirs.DownloadDir}/plot_${farmerId}.csv`;
 
-      const response = await fetch(`${API_URL}/api/save-plot`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          farmerId: 'farmer_' + new Date().getTime(), // Unique ID
-          plotCoordinates: points.map(p => [p.latitude, p.longitude]),
-        }),
-      });
+      await RNFetchBlob.config({ path }).fetch('GET', csvUrl);
+      await FileViewer.open(path, { showOpenWithDialog: true });
 
-      Alert.alert('✅ Success', 'Plot saved to PostGIS!');
-      console.log('Response:', response.data);
-    } catch (error: any) {
-      console.error('❌ FULL SAVE ERROR:', error); // ← ADD THIS
-      Alert.alert(
-        '❌ Error',
-        error.response?.data?.error ||
-          'Could not connect to backend'
-      );
+    } catch (fileError) {
+      console.warn('⚠️ Local open failed, opening in browser instead');
+      await Linking.openURL(csvUrl);
     }
-  };
+
+    // 4️⃣ Navigate AFTER CSV is opened
+    navigation.navigate('Results', {
+      farmerId,
+      plotCoordinates: points.map(p => [p.latitude, p.longitude]),
+    });
+
+  } catch (error: any) {
+    console.error('❌ FULL SAVE ERROR:', error);
+
+    let errorMessage = 'Failed to save plot';
+    if (error.message?.includes('Network')) {
+      errorMessage = 'Cannot connect to backend. Is it running?';
+    } else if (error.message?.includes('HTTP')) {
+      errorMessage = `Backend error: ${error.message}`;
+    }
+
+    Alert.alert('❌ Error', errorMessage);
+  }
+};
+
 
   const handleClear = () => setPoints([]);
 
@@ -173,6 +191,10 @@ export default function MapScreen({ navigation }: MapScreenProps) {
     </View>
   );
 }
+
+/* =======================
+   STYLES
+======================= */
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
