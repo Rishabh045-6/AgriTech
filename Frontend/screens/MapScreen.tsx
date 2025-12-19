@@ -104,12 +104,14 @@ export default function MapScreen({ navigation }: MapScreenProps) {
         }),
       });
 
+      Alert.alert('✅ Success', `Plot saved! Farmer ID: ${farmerId}`);
+
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
 
-      // ✅ Navigate to Results (CSV already opened on your PC)
+      // ✅ Navigate to Results page (CSV already opened on PC)
       navigation.navigate('Results', {
         farmerId,
         plotCoordinates: points.map(p => [p.latitude, p.longitude]),
@@ -128,6 +130,7 @@ export default function MapScreen({ navigation }: MapScreenProps) {
       Alert.alert('❌ Error', errorMessage);
     }
   };
+
 
   const handleClear = () => setPoints([]);
 
