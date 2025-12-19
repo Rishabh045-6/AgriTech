@@ -38,7 +38,7 @@ export default function ResultsScreen({ route, navigation }: ResultsScreenProps)
       try {
         const API_URL =
           Platform.OS === 'android'
-            ? 'http://10.0.2.2:3001'
+            ? 'http://192.168.31.20:3001'
             : 'http://localhost:3001';
 
         const response = await fetch(`${API_URL}/api/plot-data/${farmerId}`);

@@ -2,6 +2,15 @@
 const express = require('express');
 const { Pool } = require('pg');
 const cors = require('cors');
+const { exec } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+
+// Create exports directory
+const EXPORTS_DIR = path.join(__dirname, 'exports');
+if (!fs.existsSync(EXPORTS_DIR)) {
+  fs.mkdirSync(EXPORTS_DIR, { recursive: true });
+}
 
 const app = express();
 app.use(cors());
@@ -12,11 +21,11 @@ const pool = new Pool({
   user: 'postgres',
   host: 'localhost',
   database: 'farmdb',
-  password: 'Rishabh.0456@@', // ← REPLACE with your password
+  password: 'Rishabh.0456@@', // replace if needed
   port: 5432,
 });
 
-// Create table for farm plots
+// Create table
 pool.query(`
   CREATE TABLE IF NOT EXISTS plots (
     id SERIAL PRIMARY KEY,
@@ -30,74 +39,68 @@ pool.query(`
   console.error('❌ Table error:', err);
 });
 
-// Save plot endpoint
-// Update your POST /api/save-plot endpoint
+/* ---------------------------------------------------
+   SAVE PLOT
+--------------------------------------------------- */
 app.post('/api/save-plot', async (req, res) => {
   try {
     const { farmerId, plotCoordinates } = req.body;
-    
+
     if (!farmerId || !Array.isArray(plotCoordinates) || plotCoordinates.length < 3) {
       return res.status(400).json({ error: 'Invalid input' });
     }
 
-    let coords = plotCoordinates;
-    const first = coords[0];
-    const last = coords[coords.length - 1];
+    // ✅ 1. ORIGINAL coordinates → CSV (NO DUPLICATE)
+    const csvCoords = [...plotCoordinates];
+
+    // ✅ 2. CLOSED coordinates → PostGIS
+    let postgisCoords = [...plotCoordinates];
+    const first = postgisCoords[0];
+    const last = postgisCoords[postgisCoords.length - 1];
+
     if (first[0] !== last[0] || first[1] !== last[1]) {
-      coords = [...coords, first];
+      postgisCoords.push(first);
     }
 
-    const wkt = `POLYGON((${coords.map(pt => `${pt[1]} ${pt[0]}`).join(', ')}))`;
+    // PostGIS uses lng lat
+    const wkt = `POLYGON((${postgisCoords
+      .map(([lat, lng]) => `${lng} ${lat}`)
+      .join(', ')}))`;
 
-    // Insert and return the created plot
-    const result = await pool.query(
-      `INSERT INTO plots (farmer_id, plot_geom) 
-       VALUES ($1, ST_GeomFromText($2, 4326))
-       RETURNING id, farmer_id, created_at`,
+    await pool.query(
+      `INSERT INTO plots (farmer_id, plot_geom)
+       VALUES ($1, ST_GeomFromText($2, 4326))`,
       [farmerId, wkt]
     );
 
-    // Get GeoJSON for the saved plot
-    const geojsonResult = await pool.query(
-      `SELECT ST_AsGeoJSON(plot_geom) AS geojson FROM plots WHERE id = $1`,
-      [result.rows[0].id]
-    );
+    // ✅ 3. CSV generation (clean)
+    const csv = `latitude,longitude\n${csvCoords
+      .map(([lat, lng]) => `${lat},${lng}`)
+      .join('\n')}`;
 
-    const plotData = {
-      id: result.rows[0].id,
-      farmerId: result.rows[0].farmer_id,
-      createdAt: result.rows[0].created_at,
-      geometry: JSON.parse(geojsonResult.rows[0].geojson),
-      coordinates: coords // Original format for your model
-    };
+    const filename = `plot_${farmerId}_${Date.now()}.csv`;
+    const filepath = path.join(EXPORTS_DIR, filename);
+    fs.writeFileSync(filepath, csv);
 
-    res.json({ 
-      success: true, 
-      message: 'Plot saved!',
-      plot: plotData
-    });
+    // Auto-open CSV
+    if (process.platform === 'win32') {
+      exec(`start "" "${filepath}"`);
+    } else if (process.platform === 'darwin') {
+      exec(`open "${filepath}"`);
+    } else {
+      exec(`xdg-open "${filepath}"`);
+    }
+
+    res.json({ success: true, message: 'Plot saved successfully' });
   } catch (err) {
     console.error('Save error:', err);
     res.status(500).json({ error: 'Failed to save plot' });
   }
 });
 
-// Get plots endpoint (optional)
-app.get('/api/plots/:farmerId', async (req, res) => {
-  try {
-    const { rows } = await pool.query(
-      `SELECT id, ST_AsGeoJSON(plot_geom) AS geojson 
-       FROM plots 
-       WHERE farmer_id = $1`,
-      [req.params.farmerId]
-    );
-    res.json(rows);
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch plots' });
-  }
-});
-
-// Get plot data as JSON
+/* ---------------------------------------------------
+   GET PLOT DATA (JSON)
+--------------------------------------------------- */
 app.get('/api/plot-data/:farmerId', async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -107,8 +110,10 @@ app.get('/api/plot-data/:farmerId', async (req, res) => {
         ST_AsGeoJSON(plot_geom) AS plot_geojson,
         ST_Area(plot_geom::geography) AS area_sqm,
         created_at
-       FROM plots 
-       WHERE farmer_id = $1`,
+       FROM plots
+       WHERE farmer_id = $1
+       ORDER BY created_at DESC
+       LIMIT 1`,
       [req.params.farmerId]
     );
 
@@ -117,37 +122,38 @@ app.get('/api/plot-data/:farmerId', async (req, res) => {
     }
 
     const plot = rows[0];
-    const area_acres = parseFloat((plot.area_sqm * 0.000247105).toFixed(2)); // sqm → acres
+    const areaAcres = +(plot.area_sqm * 0.000247105).toFixed(2);
 
-    const response = {
+    res.json({
       plotId: plot.id,
       farmerId: plot.farmer_id,
-      areaAcres: area_acres,
-      coordinates: JSON.parse(plot.plot_geojson).coordinates[0].map(coord => ({
-        latitude: coord[1],
-        longitude: coord[0]
-      })),
-      createdAt: plot.created_at
-    };
-
-    res.json(response);
+      areaAcres,
+      coordinates: JSON.parse(plot.plot_geojson).coordinates[0].map(
+        ([lng, lat]) => ({ latitude: lat, longitude: lng })
+      ),
+      createdAt: plot.created_at,
+    });
   } catch (err) {
     console.error('Fetch error:', err);
     res.status(500).json({ error: 'Failed to fetch plot' });
   }
 });
 
-// Get plot data as CSV
+/* ---------------------------------------------------
+   GET PLOT SUMMARY CSV
+--------------------------------------------------- */
 app.get('/api/plot-data/:farmerId.csv', async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT 
         farmer_id,
-        ST_X(ST_Centroid(plot_geom)) AS center_lng,
         ST_Y(ST_Centroid(plot_geom)) AS center_lat,
+        ST_X(ST_Centroid(plot_geom)) AS center_lng,
         ST_Area(plot_geom::geography) * 0.000247105 AS area_acres
-       FROM plots 
-       WHERE farmer_id = $1`,
+       FROM plots
+       WHERE farmer_id = $1
+       ORDER BY created_at DESC
+       LIMIT 1`,
       [req.params.farmerId]
     );
 
@@ -155,18 +161,22 @@ app.get('/api/plot-data/:farmerId.csv', async (req, res) => {
       return res.status(404).send('Plot not found');
     }
 
-    const plot = rows[0];
-    const csv = `farmerId,centerLat,centerLng,areaAcres\n${plot.farmer_id},${plot.center_lat},${plot.center_lng},${plot.area_acres}`;
-    
+    const p = rows[0];
+    const csv = `farmerId,centerLat,centerLng,areaAcres
+${p.farmer_id},${p.center_lat},${p.center_lng},${p.area_acres}`;
+
     res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', 'attachment; filename=plot_data.csv');
+    res.setHeader('Content-Disposition', 'attachment; filename=plot_summary.csv');
     res.send(csv);
   } catch (err) {
+    console.error('CSV error:', err);
     res.status(500).send('Error generating CSV');
   }
 });
 
-// Start server
+/* ---------------------------------------------------
+   START SERVER
+--------------------------------------------------- */
 const PORT = 3001;
 app.listen(PORT, () => {
   console.log(`🚀 Backend running on http://localhost:${PORT}`);
