@@ -284,7 +284,7 @@ const ConfidenceMeter = ({ label, value, color }: { label: string, value: number
     <Text style={styles.confidenceLabel}>{label}</Text>
     <View style={styles.confidenceMeter}>
       <View style={[styles.confidenceFill, { width: `${value * 100}%`, backgroundColor: color }]} />
-      <Text style={styles.confidenceText}>{(value * 100).toFixed(1)}%</Text>
+      <Text style={styles.confidenceeText}>{(value * 100).toFixed(1)}%</Text>
     </View>
   </View>
 );
@@ -453,7 +453,7 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: 10
   },
-  confidenceText: {
+  confidenceeText: {
     position: 'absolute',
     right: 10,
     top: 0,
