@@ -17,43 +17,43 @@ CROP_CONFIG = {
         'window_size': 8,
         'sowing_start': {'month': 6, 'day': 1},   # June 1
         'season_end': {'month': 10, 'day': 31},   # Oct 31
-        'model_path': r"C:\Users\Arun\Downloads\Crops\Rice\Stage classification\rice_model.pt"
+        'model_path': r"models\rice_model.pt"
     },
     'wheat': {
         'window_size': 12,
         'sowing_start': {'month': 11, 'day': 1},  # Nov 1
         'season_end': {'month': 4, 'day': 30},    # Apr 30 (next year)
-        'model_path': r"C:\Users\Arun\Downloads\Crops\Wheat\Stage classification\wheat_model.pt"
+        'model_path': r"models\wheat_model.pt"
     },
     'maize': {
         'window_size': 8,
         'sowing_start': {'month': 5, 'day': 15},  # May 15
         'season_end': {'month': 9, 'day': 30},    # Sep 30
-        'model_path': r"C:\Users\Arun\Downloads\Crops\Maize\Stage classification\maize_model.pt"
+        'model_path': r"models\maize_model.pt"
     },
     'chickpea': {
         'window_size': 7,
         'sowing_start': {'month': 10, 'day': 15}, # Oct 15
         'season_end': {'month': 3, 'day': 31},    # Mar 31 (next year)
-        'model_path': r"C:\Users\Arun\Downloads\Crops\Chickpea\Stage classification\chickpea_model.pt"
+        'model_path': r"models\chickpea_model.pt"
     },
     'pigeon_pea': {
         'window_size': 7,
         'sowing_start': {'month': 6, 'day': 1},   # June 1
         'season_end': {'month': 12, 'day': 31},   # Dec 31
-        'model_path': r"C:\Users\Arun\Downloads\Crops\PigeonPea\Stage classification\pigeonpea_model.pt"
+        'model_path': r"models\pigeon_pea_model.pt"
     },
-    'beans': {
+    'bean': {
         'window_size': 6,
         'sowing_start': {'month': 2, 'day': 1},   # Feb 1
         'season_end': {'month': 5, 'day': 31},    # May 31
-        'model_path': r"C:\Users\Arun\Downloads\Crops\Beans\Stage classification\beans_model.pt"
+        'model_path': r"models\bean_model.pt"
     },
     'lentils': {
         'window_size': 7,
         'sowing_start': {'month': 10, 'day': 1},  # Oct 1
         'season_end': {'month': 3, 'day': 31},    # Mar 31 (next year)
-        'model_path': r"C:\Users\Arun\Downloads\Crops\Lentils\Stage classification\lentils_model.pt"
+        'model_path': r"models\lentils_model.pt"
     }
 }
 

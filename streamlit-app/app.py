@@ -118,25 +118,42 @@ def load_model(crop_type):
 # ===============================
 # BACKEND INTEGRATION
 # ===============================
-def get_latest_plot_data():
-    """Fetch latest plot from backend"""
+
+def get_latest_plot_data(farmer_id):
+    """Fetch latest plot from backend for a farmer"""
     try:
-        # Replace with your actual backend URL
-        response = requests.get('http://localhost:3001/api/latest-plot')
+        farmer_id = farmer_id.strip().lower()
+
+        response = requests.get(
+            "http://localhost:3001/api/latest-plot",
+            params={"farmerId": farmer_id}   # ✅ REQUIRED
+        )
+
         if response.status_code == 200:
             return response.json()
-        return None
-    except:
+        else:
+            return None
+
+    except Exception as e:
+        print("Error:", e)
         return None
 
 def get_plots_by_farmer(farmer_id):
     """Get all plots for a specific farmer"""
     try:
-        response = requests.get(f'http://localhost:3001/api/plot-data/{farmer_id}')
+        farmer_id = farmer_id.strip().lower()
+
+        response = requests.get(
+            f"http://localhost:3001/api/plot-data/{farmer_id}"
+        )
+
         if response.status_code == 200:
             return response.json()
-        return []
-    except:
+        else:
+            return []
+
+    except Exception as e:
+        print("Error:", e)
         return []
 
 # ===============================
