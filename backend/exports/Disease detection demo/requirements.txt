@@ -1,0 +1,11 @@
+streamlit
+torch
+numpy
+pandas
+plotly
+scikit-learn
+joblib
+folium
+streamlit-folium
+sentinelhub
+tqdm
