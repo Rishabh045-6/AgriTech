@@ -56,58 +56,124 @@ const normalizeFarmerId = (id) =>
 --------------------------------------------------- */
 app.post('/api/save-plot', async (req, res) => {
   try {
-    let { farmerId, plotCoordinates } = req.body;
-    farmerId = normalizeFarmerId(farmerId);
+    const { farmerId, plotCoordinates, cropType } = req.body;
+
+    console.log('💾 SAVING PLOT FOR FARMER:', farmerId); // ✅ DEBUG LOG
 
     if (!farmerId || !Array.isArray(plotCoordinates) || plotCoordinates.length < 3) {
       return res.status(400).json({ error: 'Invalid input' });
     }
 
-    // Keep original coordinates for CSV
-    const originalCoords = [...plotCoordinates];
-
-    // Close polygon ONLY for PostGIS
-    let coords = [...plotCoordinates];
-    const first = coords[0];
-    const last = coords[coords.length - 1];
-    if (first[0] !== last[0] || first[1] !== last[1]) {
-      coords.push(first);
+    if (!farmerId || !Array.isArray(plotCoordinates) || plotCoordinates.length < 3) {
+      return res.status(400).json({ error: 'Invalid input' });
     }
 
-    const wkt = `POLYGON((${coords
-      .map(pt => `${pt[1]} ${pt[0]}`)
-      .join(', ')}))`;
+    // Save original coordinates for CSV (no duplication)
+    const originalCoords = [...plotCoordinates];
+
+    // Close polygon ONLY for PostGIS (not CSV)
+    let coordsForPostGIS = plotCoordinates;
+    const first = coordsForPostGIS[0];
+    const last = coordsForPostGIS[coordsForPostGIS.length - 1];
+    if (first[0] !== last[0] || first[1] !== last[1]) {
+      coordsForPostGIS = [...coordsForPostGIS, first];
+    }
+
+    const wkt = `POLYGON((${coordsForPostGIS.map(pt => `${pt[1]} ${pt[0]}`).join(', ')}))`;
 
     await pool.query(
-      `INSERT INTO plots (farmer_id, plot_geom)
+      `INSERT INTO plots (farmer_id, plot_geom) 
        VALUES ($1, ST_GeomFromText($2, 4326))`,
       [farmerId, wkt]
     );
 
-    /* ---------- CSV ---------- */
-    const csv = `farmer_id,latitude,longitude
-${originalCoords.map(pt =>
-      `${farmerId},${pt[0]},${pt[1]}`
-    ).join('\n')}`;
-
+    // ✅ GENERATE CSV WITH ORIGINAL COORDINATES (no duplicate)
+    const csv = `latitude,longitude\n${originalCoords.map(pt => `${pt[0]},${pt[1]}`).join('\n')}`;
     const filename = `plot_${farmerId}_${Date.now()}.csv`;
     const filepath = path.join(EXPORTS_DIR, filename);
+
     fs.writeFileSync(filepath, csv);
 
-    // Auto-open CSV (local dev only)
-    if (process.platform === 'win32') exec(`start "" "${filepath}"`);
-    else if (process.platform === 'darwin') exec(`open "${filepath}"`);
-    else exec(`xdg-open "${filepath}"`);
+    // ✅ AUTO-OPEN CSV ON PC
+    if (process.platform === 'win32') {
+      exec(`start "" "${filepath}"`); // Windows
+    } else if (process.platform === 'darwin') {
+      exec(`open "${filepath}"`); // macOS
+    } else {
+      exec(`xdg-open "${filepath}"`); // Linux
+    }
 
+    res.json({ success: true, message: 'Plot saved!', farmerId: farmerId });
+  } catch (err) {
+    console.error('Backend error:', err);
+    res.status(500).json({ error: 'Failed to save plot' });
+  }
+});
+
+// Add this AFTER your /api/save-plot endpoint
+
+app.post('/api/analyze-crop', async (req, res) => {
+  try {
+    const { farmerId, cropType } = req.body;
+
+    // ✅ Get plot coordinates
+    const { rows } = await pool.query(
+      `SELECT 
+        ST_AsGeoJSON(plot_geom) AS plot_geojson
+       FROM plots 
+       WHERE farmer_id = $1
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [farmerId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'No plot found for this farmer' });
+    }
+
+    const coords = JSON.parse(rows[0].plot_geojson).coordinates[0].map(coord => ({
+      latitude: coord[1],
+      longitude: coord[0]
+    }));
+
+    // ✅ Fetch satellite data (simplified for demo)
+    // In production, use your data_fetcher.py logic
+    const mockData = {
+      window_features: [[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1]],
+      window_df: [
+        { date: '2025-03-30', NDVI: 0.32 },
+        { date: '2025-04-01', NDVI: 0.31 },
+        { date: '2025-04-03', NDVI: 0.30 },
+        { date: '2025-04-06', NDVI: 0.40 },
+        { date: '2025-04-10', NDVI: 0.45 },
+        { date: '2025-04-15', NDVI: 0.48 },
+        { date: '2025-04-20', NDVI: 0.49 },
+        { date: '2025-04-25', NDVI: 0.50 },
+      ]
+    };
+
+    // ✅ Run model (simulated for now)
+    const stageNames = ["Vegetative", "Reproductive", "Ripening"];
+    const probabilities = [0.2, 0.8, 0.0]; // Simulate "Reproductive" stage
+    const predictedStage = 1; // Reproductive
+
+    // ✅ Return results to app
     res.json({
       success: true,
-      message: 'Plot saved successfully',
-      farmerId
+      cropType: cropType,
+      stage: stageNames[predictedStage],
+      probability: probabilities[predictedStage],
+      ndviTrend: mockData.window_df.map(row => ({ date: row.date, ndvi: row.NDVI })),
+      recommendations: [
+        "Critical stage - monitor closely for stress",
+        "Check for flowering and grain formation",
+        "Avoid water stress during grain filling"
+      ]
     });
 
   } catch (err) {
-    console.error('❌ Save error:', err);
-    res.status(500).json({ error: 'Failed to save plot' });
+    console.error('Analysis error:', err);
+    res.status(500).json({ error: 'Failed to analyze crop' });
   }
 });
 
@@ -156,6 +222,41 @@ app.get('/api/latest-plot', async (req, res) => {
   }
 });
 
+// Add this endpoint to server.js
+app.post('/api/open-streamlit', async (req, res) => {
+  try {
+    const { farmerId, cropType } = req.body;
+
+
+    console.log('✅ RECEIVED FROM MOBILE:', { farmerId, cropType }); // ✅ DEBUG LOG
+
+    const { exec } = require('child_process');
+
+    // ✅ Encode parameters properly
+    const encodedFarmerId = encodeURIComponent(farmerId);
+    const encodedCropType = encodeURIComponent(cropType);
+
+    // Open Streamlit with URL parameters
+    // ✅ Open Streamlit with encoded parameters
+    const streamlitUrl = `http://localhost:8501/?farmerId=${encodedFarmerId}&cropType=${encodedCropType}`;
+
+    let cmd;
+    if (process.platform === 'win32') {
+      cmd = `start "" "${streamlitUrl}"`; // Windows
+    } else if (process.platform === 'darwin') {
+      cmd = `open "${streamlitUrl}"`; // macOS
+    } else {
+      cmd = `xdg-open "${streamlitUrl}"`; // Linux
+    }
+
+    exec(cmd);
+
+    res.json({ success: true, message: 'Streamlit opened' });
+  } catch (err) {
+    console.error('Open Streamlit error:', err);
+    res.status(500).json({ error: 'Failed to open Streamlit' });
+  }
+});
 /* ---------------------------------------------------
    GET ALL PLOTS FOR FARMER
 --------------------------------------------------- */
@@ -194,6 +295,93 @@ app.get('/api/plot-data/:farmerId', async (req, res) => {
   } catch (err) {
     console.error('❌ Fetch error:', err);
     res.status(500).json({ error: 'Failed to fetch plots' });
+  }
+});
+
+app.post('/api/run-model', async (req, res) => {
+  try {
+    const { farmerId, cropType } = req.body;
+
+    console.log('🤖 Running model for:', { farmerId, cropType });
+
+    // Get plot coordinates from database
+    const { rows } = await pool.query(
+      `SELECT 
+        ST_AsGeoJSON(plot_geom) AS plot_geojson
+       FROM plots 
+       WHERE farmer_id = $1
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [farmerId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'No plot found for this farmer' });
+    }
+
+    const coordinates = JSON.parse(rows[0].plot_geojson).coordinates[0].map(coord => ({
+      latitude: coord[1],
+      longitude: coord[0]
+    }));
+
+    // ✅ ENCODE coordinates properly to avoid shell splitting
+    const { exec } = require('child_process');
+    const pythonScript = 'predict_crop_stage.py';
+    
+    // ✅ Use double quotes and escape inner quotes
+    const coordinatesJson = JSON.stringify(coordinates).replace(/"/g, '\\"');
+    const command = `python "${pythonScript}" "${farmerId}" "${cropType}" "${coordinatesJson}"`;
+
+    console.log('EXECUTING COMMAND:', command); // Debug log
+
+    exec(command, { cwd: __dirname }, (error, stdout, stderr) => {
+      console.log('PYTHON STDOUT:', stdout);
+      console.log('PYTHON STDERR:', stderr);
+      console.log('PYTHON ERROR:', error);
+
+      if (error) {
+        console.error('Python script error:', error);
+        return res.status(500).json({ 
+          error: `Python script failed: ${error.message}`,
+          success: false 
+        });
+      }
+
+      if (stderr) {
+        console.error('Python script stderr:', stderr);
+      }
+
+      if (!stdout || stdout.trim() === '') {
+        return res.status(500).json({ 
+          error: 'Python script returned no output',
+          success: false 
+        });
+      }
+
+      try {
+        const result = JSON.parse(stdout.trim());
+        
+        if (result.success) {
+          res.json(result);
+        } else {
+          res.status(500).json({ 
+            error: result.error || 'Model prediction failed',
+            success: false 
+          });
+        }
+      } catch (parseError) {
+        console.error('JSON parse error:', parseError);
+        console.error('Raw output:', stdout);
+        res.status(500).json({ 
+          error: `Invalid JSON response from Python script: ${parseError.message}`,
+          success: false 
+        });
+      }
+    });
+
+  } catch (err) {
+    console.error('Model error:', err);
+    res.status(500).json({ error: 'Failed to run model' });
   }
 });
 

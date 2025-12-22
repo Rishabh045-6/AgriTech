@@ -86,6 +86,7 @@ export default function MapScreen({ navigation }: MapScreenProps) {
       return;
     }
 
+    // ✅ Generate farmerId
     const farmerId = `farmer_${Date.now()}`;
 
     try {
@@ -94,27 +95,25 @@ export default function MapScreen({ navigation }: MapScreenProps) {
           ? 'http://192.168.31.20:3001'  // Your PC's IP
           : 'http://localhost:3001';
 
-      // ✅ ONLY save to backend (CSV will open on PC automatically)
+      // ✅ Save plot to backend (PostGIS)
       const response = await fetch(`${API_URL}/api/save-plot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           farmerId,
-          plotCoordinates: points.map(p => [p.latitude, p.longitude]),
+          plotCoordinates: points.map(p => [p.latitude, p.longitude])
         }),
       });
-
-      Alert.alert('✅ Success', `Plot saved! Farmer ID: ${farmerId}`);
 
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
 
-      // ✅ Navigate to Results page (CSV already opened on PC)
-      navigation.navigate('Results', {
+      // ✅ Navigate to Crop Selection screen (NEW)
+      navigation.navigate('CropSelection', {
         farmerId,
-        plotCoordinates: points.map(p => [p.latitude, p.longitude]),
+        plotCoordinates: points.map(p => [p.latitude, p.longitude])
       });
 
     } catch (error: any) {
@@ -130,7 +129,6 @@ export default function MapScreen({ navigation }: MapScreenProps) {
       Alert.alert('❌ Error', errorMessage);
     }
   };
-
 
   const handleClear = () => setPoints([]);
 
