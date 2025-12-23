@@ -61,6 +61,8 @@ pool.query(`
 /* ---------------------------------------------------
    LOGIN/REGISTER ENDPOINT
 --------------------------------------------------- */
+const { v4: uuidv4 } = require('uuid'); // Add this import
+
 app.post('/api/login', async (req, res) => {
   try {
     const { username } = req.body;
@@ -82,10 +84,8 @@ app.post('/api/login', async (req, res) => {
       farmerId = existingUser.rows[0].farmer_id;
       console.log(`Returning existing user: ${username} with farmer_id: ${farmerId}`);
     } else {
-      // Create new user with unique farmer_id
-      const timestamp = Date.now();
-      const randomString = crypto.randomBytes(4).toString('hex');
-      farmerId = `farmer_${timestamp}${randomString}`;
+      // Create new user with UNIQUE farmer_id using UUID
+      farmerId = `farmer_${uuidv4().replace(/-/g, '')}`;
       
       await pool.query(
         'INSERT INTO users (username, farmer_id) VALUES ($1, $2)',
