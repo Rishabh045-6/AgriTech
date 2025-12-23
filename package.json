@@ -1,5 +1,21 @@
 {
+  "name": "agritech-tempfix",
+  "version": "1.0.0",
+  "description": "Agritech Crop Analysis App",
+  "main": "index.js",
+  "scripts": {
+    "start": "react-native start",
+    "android": "react-native run-android",
+    "ios": "react-native run-ios",
+    "build:android": "cd android && ./gradlew assembleRelease",
+    "build:ios": "cd ios && xcodebuild -workspace TempFix.xcworkspace -scheme TempFix archive"
+  },
   "dependencies": {
-    "react-native-svg": "^15.15.1"
+    "react": "18.2.0",
+    "react-native": "0.72.0",
+    "react-native-maps": "^1.7.1",
+    "@react-native-async-storage/async-storage": "^1.19.0",
+    "@react-native-community/geolocation": "^3.1.0",
+    "react-native-vector-icons": "^10.0.0"
   }
 }

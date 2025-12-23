@@ -1,4 +1,5 @@
-// server.js
+require('dotenv').config(); // Add this at the top
+
 const express = require('express');
 const { Pool } = require('pg');
 const cors = require('cors');
@@ -6,7 +7,10 @@ const { exec } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
+// Use environment variables
 const app = express();
+const PORT = process.env.PORT || 3001;
+
 app.use(cors());
 app.use(express.json());
 
@@ -21,12 +25,13 @@ if (!fs.existsSync(EXPORTS_DIR)) {
 /* ---------------------------------------------------
    DATABASE
 --------------------------------------------------- */
+// Database connection using environment variables
 const pool = new Pool({
-  user: 'postgres',
-  host: 'localhost',
-  database: 'farmdb',
-  password: 'Rishabh.0456@@', // change if needed
-  port: 5432,
+  host: process.env.DB_HOST || 'localhost',
+  port: process.env.DB_PORT || 5432,
+  database: process.env.DB_NAME || 'agritech',
+  user: process.env.DB_USER || 'postgres',
+  password: process.env.DB_PASSWORD || process.env.DEFAULT_DB_PASSWORD,  // Better approach
 });
 
 /* ---------------------------------------------------
@@ -59,10 +64,6 @@ app.post('/api/save-plot', async (req, res) => {
     const { farmerId, plotCoordinates, cropType } = req.body;
 
     console.log('💾 SAVING PLOT FOR FARMER:', farmerId); // ✅ DEBUG LOG
-
-    if (!farmerId || !Array.isArray(plotCoordinates) || plotCoordinates.length < 3) {
-      return res.status(400).json({ error: 'Invalid input' });
-    }
 
     if (!farmerId || !Array.isArray(plotCoordinates) || plotCoordinates.length < 3) {
       return res.status(400).json({ error: 'Invalid input' });
@@ -110,8 +111,9 @@ app.post('/api/save-plot', async (req, res) => {
   }
 });
 
-// Add this AFTER your /api/save-plot endpoint
-
+/* ---------------------------------------------------
+   ANALYZE CROP (SIMULATED)
+--------------------------------------------------- */
 app.post('/api/analyze-crop', async (req, res) => {
   try {
     const { farmerId, cropType } = req.body;
@@ -222,11 +224,12 @@ app.get('/api/latest-plot', async (req, res) => {
   }
 });
 
-// Add this endpoint to server.js
+/* ---------------------------------------------------
+   OPEN STREAMLIT (IF NEEDED)
+--------------------------------------------------- */
 app.post('/api/open-streamlit', async (req, res) => {
   try {
     const { farmerId, cropType } = req.body;
-
 
     console.log('✅ RECEIVED FROM MOBILE:', { farmerId, cropType }); // ✅ DEBUG LOG
 
@@ -257,6 +260,7 @@ app.post('/api/open-streamlit', async (req, res) => {
     res.status(500).json({ error: 'Failed to open Streamlit' });
   }
 });
+
 /* ---------------------------------------------------
    GET ALL PLOTS FOR FARMER
 --------------------------------------------------- */
@@ -298,78 +302,9 @@ app.get('/api/plot-data/:farmerId', async (req, res) => {
   }
 });
 
-// Add this endpoint to server.js
-app.post('/api/growth-performance', async (req, res) => {
-  try {
-    const { farmerId, cropType, plotCoordinates } = req.body;
-
-    // Get plot coordinates from database
-    const { rows } = await pool.query(
-      `SELECT 
-        ST_AsGeoJSON(plot_geom) AS plot_geojson
-       FROM plots 
-       WHERE farmer_id = $1
-       ORDER BY created_at DESC
-       LIMIT 1`,
-      [farmerId]
-    );
-
-    if (rows.length === 0) {
-      return res.status(404).json({ error: 'No plot found for this farmer' });
-    }
-
-    // Convert coordinates to format expected by data_fetcher
-    const coordinates = JSON.parse(rows[0].plot_geojson).coordinates[0].map(coord => ({
-      latitude: coord[1],
-      longitude: coord[0]
-    }));
-
-    // Call your Python script for growth performance analysis
-    const { exec } = require('child_process');
-    const pythonScript = 'growth_performance.py';
-    const coordinatesJson = JSON.stringify(coordinates);
-
-    const command = `python "${pythonScript}" "${farmerId}" "${cropType}" '${coordinatesJson}'`;
-
-    exec(command, { cwd: __dirname }, (error, stdout, stderr) => {
-      if (error) {
-        console.error('Growth performance script error:', error);
-        return res.status(500).json({ 
-          error: `Growth performance script failed: ${error.message}`,
-          success: false 
-        });
-      }
-
-      if (stderr) {
-        console.error('Growth performance script stderr:', stderr);
-      }
-
-      try {
-        const result = JSON.parse(stdout.trim());
-        
-        if (result.success) {
-          res.json(result);
-        } else {
-          res.status(500).json({ 
-            error: result.error || 'Growth performance analysis failed',
-            success: false 
-          });
-        }
-      } catch (parseError) {
-        console.error('JSON parse error:', parseError);
-        res.status(500).json({ 
-          error: 'Invalid response from growth performance script',
-          success: false 
-        });
-      }
-    });
-
-  } catch (err) {
-    console.error('Growth performance error:', err);
-    res.status(500).json({ error: 'Failed to run growth performance analysis' });
-  }
-});
-
+/* ---------------------------------------------------
+   RUN MODEL (NEW - COMPLETE INTEGRATION)
+--------------------------------------------------- */
 app.post('/api/run-model', async (req, res) => {
   try {
     const { farmerId, cropType } = req.body;
@@ -496,7 +431,6 @@ ${p.farmer_id},${p.center_lat},${p.center_lng},${p.area_acres}`;
 /* ---------------------------------------------------
    START SERVER
 --------------------------------------------------- */
-const PORT = 3001;
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Server running on http://0.0.0.0:${PORT}`);
 });

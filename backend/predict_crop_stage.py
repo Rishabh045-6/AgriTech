@@ -8,6 +8,10 @@ import warnings
 from contextlib import contextmanager
 import io
 
+# Add this line at the very beginning of the file
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+
 # 🚨 HARD SILENCE MODE
 os.environ["PYTHONWARNINGS"] = "ignore"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
