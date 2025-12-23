@@ -298,6 +298,78 @@ app.get('/api/plot-data/:farmerId', async (req, res) => {
   }
 });
 
+// Add this endpoint to server.js
+app.post('/api/growth-performance', async (req, res) => {
+  try {
+    const { farmerId, cropType, plotCoordinates } = req.body;
+
+    // Get plot coordinates from database
+    const { rows } = await pool.query(
+      `SELECT 
+        ST_AsGeoJSON(plot_geom) AS plot_geojson
+       FROM plots 
+       WHERE farmer_id = $1
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [farmerId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'No plot found for this farmer' });
+    }
+
+    // Convert coordinates to format expected by data_fetcher
+    const coordinates = JSON.parse(rows[0].plot_geojson).coordinates[0].map(coord => ({
+      latitude: coord[1],
+      longitude: coord[0]
+    }));
+
+    // Call your Python script for growth performance analysis
+    const { exec } = require('child_process');
+    const pythonScript = 'growth_performance.py';
+    const coordinatesJson = JSON.stringify(coordinates);
+
+    const command = `python "${pythonScript}" "${farmerId}" "${cropType}" '${coordinatesJson}'`;
+
+    exec(command, { cwd: __dirname }, (error, stdout, stderr) => {
+      if (error) {
+        console.error('Growth performance script error:', error);
+        return res.status(500).json({ 
+          error: `Growth performance script failed: ${error.message}`,
+          success: false 
+        });
+      }
+
+      if (stderr) {
+        console.error('Growth performance script stderr:', stderr);
+      }
+
+      try {
+        const result = JSON.parse(stdout.trim());
+        
+        if (result.success) {
+          res.json(result);
+        } else {
+          res.status(500).json({ 
+            error: result.error || 'Growth performance analysis failed',
+            success: false 
+          });
+        }
+      } catch (parseError) {
+        console.error('JSON parse error:', parseError);
+        res.status(500).json({ 
+          error: 'Invalid response from growth performance script',
+          success: false 
+        });
+      }
+    });
+
+  } catch (err) {
+    console.error('Growth performance error:', err);
+    res.status(500).json({ error: 'Failed to run growth performance analysis' });
+  }
+});
+
 app.post('/api/run-model', async (req, res) => {
   try {
     const { farmerId, cropType } = req.body;

@@ -87,7 +87,7 @@ export default function ResultsScreen({ route, navigation }: ResultsScreenProps)
     );
   }
 
-  const { stage, disease, pest, ndviTrend, recommendations, healthMetrics, ndvi_stats } = results;
+  const { stage, disease, pest, growthPerformance, ndviTrend, recommendations, healthMetrics, ndvi_stats } = results;
 
   // Calculate plot area (simple approximation)
   const calculatePlotArea = () => {
@@ -100,7 +100,7 @@ export default function ResultsScreen({ route, navigation }: ResultsScreenProps)
         area += (p1.longitude * p2.latitude - p2.longitude * p1.latitude);
       }
       area = Math.abs(area) / 2;
-      // Convert to acres (approximate)
+      {/* Convert to acres (approximate)*/}
       return (area * 247.105).toFixed(2);
     }
     return 'N/A';
@@ -124,12 +124,42 @@ export default function ResultsScreen({ route, navigation }: ResultsScreenProps)
         </View>
       </View>
 
+      {/* Growth Performance Card */}
+      {growthPerformance && (
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>🌱 Growth Performance</Text>
+          <View style={styles.growthContainer}>
+            <Text style={styles.growthScore}>Overall Score: {growthPerformance.report.overall_score.toFixed(1)}</Text>
+            <Text style={styles.growthStatus}>Status: {growthPerformance.report.status}</Text>
+            <Text style={styles.growthRecommendation}>Recommendation: {growthPerformance.report.recommendation}</Text>
+          </View>
+          
+          <View style={styles.growthMetricsContainer}>
+            <GrowthMetricCard 
+              name="Growth Rate" 
+              score={growthPerformance.scores.growth_rate} 
+              status={growthPerformance.healthMetrics.growth_rate.status} 
+            />
+            <GrowthMetricCard 
+              name="Biomass" 
+              score={growthPerformance.scores.biomass} 
+              status={growthPerformance.healthMetrics.biomass.status} 
+            />
+            <GrowthMetricCard 
+              name="Stability" 
+              score={growthPerformance.scores.stability} 
+              status={growthPerformance.healthMetrics.stability.status} 
+            />
+          </View>
+        </View>
+      )}
+
       {/* Stage Prediction Card */}
       <View style={styles.card}>
         <Text style={styles.sectionTitle}>Growth Stage Prediction</Text>
         <View style={styles.predictionContainer}>
           <Text style={styles.stageText}>{stage.prediction}</Text>
-          <Text style={styles.confidenceText}>{(stage.confidence * 100).toFixed(1)}% confidence</Text>
+          <Text style={styles.confidenceeText}>{(stage.confidence * 100).toFixed(1)}% confidence</Text>
         </View>
       </View>
 
@@ -284,7 +314,7 @@ const ConfidenceMeter = ({ label, value, color }: { label: string, value: number
     <Text style={styles.confidenceLabel}>{label}</Text>
     <View style={styles.confidenceMeter}>
       <View style={[styles.confidenceFill, { width: `${value * 100}%`, backgroundColor: color }]} />
-      <Text style={styles.confidenceeText}>{(value * 100).toFixed(1)}%</Text>
+      <Text style={styles.confidenceText}>{(value * 100).toFixed(1)}%</Text>
     </View>
   </View>
 );
@@ -303,6 +333,26 @@ const HealthMetricCard = ({ name, level, status }: { name: string, level: string
       <Text style={styles.healthMetricName}>{name}</Text>
       <Text style={styles.healthMetricValue}>{level}</Text>
       <Text style={[styles.healthMetricStatus, { color: getStatusColor() }]}>
+        {status}
+      </Text>
+    </View>
+  );
+};
+
+// Growth Metric Card Component
+const GrowthMetricCard = ({ name, score, status }: { name: string, score: number, status: string }) => {
+  const getStatusColor = () => {
+    if (score >= 80) return '#4CAF50'; // Green
+    if (score >= 60) return '#8BC34A'; // Light Green
+    if (score >= 40) return '#FFC107'; // Amber
+    return '#F44336'; // Red
+  };
+
+  return (
+    <View style={styles.growthMetricCard}>
+      <Text style={styles.growthMetricName}>{name}</Text>
+      <Text style={styles.growthMetricValue}>{score.toFixed(1)}</Text>
+      <Text style={[styles.growthMetricStatus, { color: getStatusColor() }]}>
         {status}
       </Text>
     </View>
@@ -384,6 +434,57 @@ const styles = StyleSheet.create({
     color: '#666',
     marginBottom: 5
   },
+  growthContainer: {
+    paddingVertical: 10,
+    marginBottom: 10
+  },
+  growthScore: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#2E8B57',
+    marginBottom: 5
+  },
+  growthStatus: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 5
+  },
+  growthRecommendation: {
+    fontSize: 14,
+    color: '#666',
+    fontStyle: 'italic'
+  },
+  growthMetricsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between'
+  },
+  growthMetricCard: {
+    width: (width - 52) / 3, // Three cards per row
+    backgroundColor: '#F8F9FA',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 10,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E0E0E0'
+  },
+  growthMetricName: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 3
+  },
+  growthMetricValue: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#2E8B57',
+    marginBottom: 2
+  },
+  growthMetricStatus: {
+    fontSize: 10,
+    textAlign: 'center'
+  },
   predictionContainer: {
     alignItems: 'center',
     padding: 20,
@@ -396,7 +497,7 @@ const styles = StyleSheet.create({
     color: '#2E8B57',
     marginBottom: 5
   },
-  confidenceText: {
+  confidenceeText: {
     fontSize: 16,
     color: '#666'
   },
@@ -453,7 +554,7 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: 10
   },
-  confidenceeText: {
+  confidenceText: {
     position: 'absolute',
     right: 10,
     top: 0,

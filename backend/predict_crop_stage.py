@@ -135,8 +135,111 @@ def load_model(crop_type, model_type="stage"):
         print(error_msg, file=sys.stderr)
         sys.exit(1)
 
+def slope(series):
+    t = np.arange(len(series))
+    return np.polyfit(t, series, 1)[0]
+
+def stats(series):
+    return {
+        "mean": np.mean(series),
+        "std": np.std(series),
+        "slope": slope(series),
+        "min": np.min(series),
+        "max": np.max(series)
+    }
+
+def growth_rate_score(ndvi):
+    """Calculate growth rate score based on NDVI slope"""
+    s = stats(ndvi)["slope"]
+    # Assuming 0 slope = 50, -0.03 = 0, +0.03 = 100
+    return np.clip((s + 0.03) / 0.06 * 100, 0, 100)
+
+def biomass_score(ndvi):
+    """Calculate biomass score based on NDVI mean"""
+    m = stats(ndvi)["mean"]
+    # Assuming 0.2 = 0, 0.8 = 100
+    return np.clip((m - 0.2) / 0.6 * 100, 0, 100)
+
+def stability_score(ndvi):
+    """Calculate stability score based on NDVI std deviation"""
+    std = stats(ndvi)["std"]
+    # Lower std is better
+    return np.clip(100 - (std / 0.15 * 100), 0, 100)
+
+def stage_progress_score(ndvi, stage):
+    """Calculate stage progress score based on crop stage"""
+    peak = stats(ndvi)["max"]
+    
+    expected = {
+        1: (0.3, 0.6),   # Early stage
+        2: (0.6, 0.8),   # Middle stage
+        3: (0.7, 0.9)    # Late stage
+    }
+    
+    low, high = expected.get(stage, (0.3, 0.8))
+    
+    if peak < low:
+        return 30
+    elif peak > high:
+        return 85
+    return 60 + (peak - low) / (high - low) * 40
+
+def calculate_all_scores(ndvi_series, stage=2):
+    """Calculate all growth scores"""
+    return {
+        'growth_rate': growth_rate_score(ndvi_series),
+        'biomass': biomass_score(ndvi_series),
+        'stability': stability_score(ndvi_series),
+        'stage_progress': stage_progress_score(ndvi_series, stage)
+    }
+
+def overall_health_score(growth, biomass, stability, stage_progress):
+    """Calculate weighted overall health score"""
+    return round(
+        0.35 * growth +
+        0.30 * biomass +
+        0.20 * stability +
+        0.15 * stage_progress,
+        1
+    )
+
+def calculate_health_report(scores):
+    """Generate a comprehensive health report"""
+    overall = overall_health_score(
+        scores['growth_rate'],
+        scores['biomass'],
+        scores['stability'],
+        scores['stage_progress']
+    )
+    
+    # Determine status based on score
+    if overall >= 80:
+        status = "Excellent"
+        color = "green"
+        recommendation = "Crops are performing optimally. Continue current practices."
+    elif overall >= 60:
+        status = "Good"
+        color = "blue"
+        recommendation = "Crops are healthy. Monitor for any changes."
+    elif overall >= 40:
+        status = "Fair"
+        color = "orange"
+        recommendation = "Some improvement needed. Check irrigation and nutrients."
+    else:
+        status = "Poor"
+        color = "red"
+        recommendation = "Immediate attention required. Consider consulting an agronomist."
+    
+    return {
+        'overall_score': overall,
+        'status': status,
+        'color': color,
+        'recommendation': recommendation,
+        'component_scores': scores
+    }
+
 def predict_crop_analysis(farmer_id, crop_type, coordinates):
-    """Main function to predict crop stage, disease, AND pest risk"""
+    """Main function to predict crop stage, disease, pest risk, AND growth performance"""
     try:
         with suppress_stdout():
             from data_fetcher import fetch_data_for_demo, CROP_CONFIG
@@ -186,9 +289,6 @@ def predict_crop_analysis(farmer_id, crop_type, coordinates):
             # Get actual sequence length from features
             actual_seq_len = features_scaled.shape[1]
 
-            # Skip positional encoder adjustments since models handle it internally now
-            print(f"Model sequence lengths will be handled internally", file=sys.stderr)
-            
             # Stage prediction
             with torch.no_grad():
                 features_tensor = torch.FloatTensor(features_scaled)
@@ -208,10 +308,15 @@ def predict_crop_analysis(farmer_id, crop_type, coordinates):
             # Disease prediction
             with torch.no_grad():
                 x = torch.tensor(features_scaled, dtype=torch.float32)
-
-                # Run through model (positional encoding is handled internally now)
-                raw_disease_prob = disease_model(x).item()
-
+                disease_logit = disease_model(x)
+                raw_disease_prob = torch.sigmoid(disease_logit).item()
+                
+                # Run through encoder
+                x = disease_model.input_proj(x)
+                x = disease_model.transformer_encoder(x)
+                x = x.mean(dim=1)
+                x = disease_model.classifier(x)
+                raw_disease_prob = torch.sigmoid(x).item()
 
             # CALIBRATION: Adjust disease probability based on NDVI
             ndvi_mean = result["window_df"]["NDVI"].mean()
@@ -237,9 +342,15 @@ def predict_crop_analysis(farmer_id, crop_type, coordinates):
             # Pest risk prediction
             with torch.no_grad():
                 x = torch.tensor(features_scaled, dtype=torch.float32)
-    
-                # Run through model (positional embedding is handled internally now)
                 pest_logits = pest_model(x)
+                pest_probabilities = torch.softmax(pest_logits, dim=1).numpy()[0]
+                predicted_pest_idx = np.argmax(pest_probabilities)
+                
+                # Run through encoder
+                x = pest_model.input_proj(x)
+                x = pest_model.encoder(x)
+                x = x.mean(dim=1)
+                pest_logits = pest_model.head(x)
                 pest_probabilities = torch.softmax(pest_logits, dim=1).numpy()[0]
                 predicted_pest_idx = np.argmax(pest_probabilities)
 
@@ -247,6 +358,20 @@ def predict_crop_analysis(farmer_id, crop_type, coordinates):
             pest_risk_names = ["Low", "Medium", "High"]
             predicted_pest_risk = pest_risk_names[predicted_pest_idx]
             pest_confidence = float(pest_probabilities[predicted_pest_idx])
+
+            # Calculate growth performance scores using your functions
+            ndvi_series = result["window_df"]["NDVI"].values
+            growth_scores = calculate_all_scores(ndvi_series, 2)  # Default to middle stage
+            overall_score = overall_health_score(
+                growth_scores['growth_rate'],
+                growth_scores['biomass'],
+                growth_scores['stability'],
+                growth_scores['stage_progress']
+            )
+            
+            growth_report = calculate_health_report(growth_scores)
+
+            print(f"✅ Growth performance calculated: Overall Score = {overall_score:.2f}", file=sys.stderr)
 
             # Get NDVI trend
             ndvi_trend_data = [
@@ -332,6 +457,17 @@ def predict_crop_analysis(farmer_id, crop_type, coordinates):
                     "prediction": predicted_pest_risk,
                     "confidence": pest_confidence,
                     "risk_level": predicted_pest_risk
+                },
+                "growthPerformance": {
+                    "scores": growth_scores,
+                    "overall_score": overall_score,
+                    "report": growth_report,
+                    "healthMetrics": {
+                        'growth_rate': {'level': f"{growth_scores['growth_rate']:.1f}", 'status': 'Good' if growth_scores['growth_rate'] >= 60 else 'Needs attention'},
+                        'biomass': {'level': f"{growth_scores['biomass']:.1f}", 'status': 'Good' if growth_scores['biomass'] >= 60 else 'Needs attention'},
+                        'stability': {'level': f"{growth_scores['stability']:.1f}", 'status': 'Good' if growth_scores['stability'] >= 60 else 'Needs attention'},
+                        'stage_progress': {'level': f"{growth_scores['stage_progress']:.1f}", 'status': 'Good' if growth_scores['stage_progress'] >= 60 else 'Needs attention'}
+                    }
                 },
                 "ndviTrend": ndvi_trend_data,
                 "recommendations": {
