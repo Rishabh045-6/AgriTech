@@ -8,7 +8,6 @@ from sentinelhub import (
     SentinelHubStatistical, SHConfig
 )
 from shapely.geometry import Polygon
-import sys
 
 # ===============================
 # CROP CONFIGURATIONS
@@ -59,7 +58,7 @@ CROP_CONFIG = {
 }
 
 # ===============================
-# SENTINEL HUB CONFIG FROM ENVIRONMENT
+# SENTINEL HUB CONFIG - SECURE VERSION
 # ===============================
 def get_sentinel_clients():
     """Get Sentinel Hub clients from environment variables"""
@@ -73,17 +72,9 @@ def get_sentinel_clients():
         if client_id and client_secret:
             clients.append((client_id, client_secret))
     
-    # If no environment variables, fall back to default (for development)
+    # NO fallback to demo credentials - force users to use their own
     if not clients:
-        print("⚠️ No Sentinel Hub clients configured from environment. Using demo mode.")
-        clients = [
-            ("99dff32e-01cf-4c21-9b43-aef3262ab2a3", "vjMQcfTYxMqI32qlB6PCKPjgzlVqL1dk"),
-            ("5b7528ec-fee8-4176-96d1-0784b4cd5f0c", "be3sp3EbnoA8VzEQlH1jFUfeMbzi1OwU"),
-            ("ef4cab95-f360-4bd8-a5a6-76766f01dfdc", "ikttFkyFaayLXGMOgul6zUvfYa7BsnfI"),
-            ("58eabf3f-0d1b-476f-8e4a-ac573ec49b67", "q1xcKSrwTHUvKGCt9MZKnsMRqTsFt6Yz"),
-            ("73f638c7-de16-4d7e-8779-faf7ec2b4f05", "I6fA2rbLE376HqF0uxJlpKPDWvtUDVf1"),
-            ("1ab951e7-be10-4e1f-8a55-1007606aef50", "wYg7AvtIitZCzjOTmNyp0kS9Jil2HV5g"),
-        ]
+        raise ValueError("No Sentinel Hub clients configured. Set SENTINEL_CLIENT_1_ID and SENTINEL_CLIENT_1_SECRET environment variables.")
     
     return clients
 
