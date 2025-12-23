@@ -15,14 +15,6 @@ app.use(cors());
 app.use(express.json());
 
 /* ---------------------------------------------------
-   EXPORTS DIRECTORY
---------------------------------------------------- */
-const EXPORTS_DIR = path.join(__dirname, 'exports');
-if (!fs.existsSync(EXPORTS_DIR)) {
-  fs.mkdirSync(EXPORTS_DIR, { recursive: true });
-}
-
-/* ---------------------------------------------------
    DATABASE
 --------------------------------------------------- */
 // Database connection using environment variables
@@ -31,7 +23,7 @@ const pool = new Pool({
   port: process.env.DB_PORT || 5432,
   database: process.env.DB_NAME || 'agritech',
   user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || process.env.DEFAULT_DB_PASSWORD,  // Better approach
+  password: process.env.DB_PASSWORD, // ❌ No default password - will throw error if not set
 });
 
 /* ---------------------------------------------------
@@ -57,7 +49,7 @@ const normalizeFarmerId = (id) =>
   id?.toString().trim().toLowerCase();
 
 /* ---------------------------------------------------
-   SAVE PLOT
+   SAVE PLOT (NO CSV)
 --------------------------------------------------- */
 app.post('/api/save-plot', async (req, res) => {
   try {
@@ -68,9 +60,6 @@ app.post('/api/save-plot', async (req, res) => {
     if (!farmerId || !Array.isArray(plotCoordinates) || plotCoordinates.length < 3) {
       return res.status(400).json({ error: 'Invalid input' });
     }
-
-    // Save original coordinates for CSV (no duplication)
-    const originalCoords = [...plotCoordinates];
 
     // Close polygon ONLY for PostGIS (not CSV)
     let coordsForPostGIS = plotCoordinates;
@@ -88,22 +77,7 @@ app.post('/api/save-plot', async (req, res) => {
       [farmerId, wkt]
     );
 
-    // ✅ GENERATE CSV WITH ORIGINAL COORDINATES (no duplicate)
-    const csv = `latitude,longitude\n${originalCoords.map(pt => `${pt[0]},${pt[1]}`).join('\n')}`;
-    const filename = `plot_${farmerId}_${Date.now()}.csv`;
-    const filepath = path.join(EXPORTS_DIR, filename);
-
-    fs.writeFileSync(filepath, csv);
-
-    // ✅ AUTO-OPEN CSV ON PC
-    if (process.platform === 'win32') {
-      exec(`start "" "${filepath}"`); // Windows
-    } else if (process.platform === 'darwin') {
-      exec(`open "${filepath}"`); // macOS
-    } else {
-      exec(`xdg-open "${filepath}"`); // Linux
-    }
-
+    // ✅ NO CSV FILE CREATION OR OPENING
     res.json({ success: true, message: 'Plot saved!', farmerId: farmerId });
   } catch (err) {
     console.error('Backend error:', err);
@@ -221,43 +195,6 @@ app.get('/api/latest-plot', async (req, res) => {
   } catch (err) {
     console.error('❌ Fetch error:', err);
     res.status(500).json({ error: 'Failed to fetch plot' });
-  }
-});
-
-/* ---------------------------------------------------
-   OPEN STREAMLIT (IF NEEDED)
---------------------------------------------------- */
-app.post('/api/open-streamlit', async (req, res) => {
-  try {
-    const { farmerId, cropType } = req.body;
-
-    console.log('✅ RECEIVED FROM MOBILE:', { farmerId, cropType }); // ✅ DEBUG LOG
-
-    const { exec } = require('child_process');
-
-    // ✅ Encode parameters properly
-    const encodedFarmerId = encodeURIComponent(farmerId);
-    const encodedCropType = encodeURIComponent(cropType);
-
-    // Open Streamlit with URL parameters
-    // ✅ Open Streamlit with encoded parameters
-    const streamlitUrl = `http://localhost:8501/?farmerId=${encodedFarmerId}&cropType=${encodedCropType}`;
-
-    let cmd;
-    if (process.platform === 'win32') {
-      cmd = `start "" "${streamlitUrl}"`; // Windows
-    } else if (process.platform === 'darwin') {
-      cmd = `open "${streamlitUrl}"`; // macOS
-    } else {
-      cmd = `xdg-open "${streamlitUrl}"`; // Linux
-    }
-
-    exec(cmd);
-
-    res.json({ success: true, message: 'Streamlit opened' });
-  } catch (err) {
-    console.error('Open Streamlit error:', err);
-    res.status(500).json({ error: 'Failed to open Streamlit' });
   }
 });
 
@@ -389,42 +326,6 @@ app.post('/api/run-model', async (req, res) => {
   } catch (err) {
     console.error('Model error:', err);
     res.status(500).json({ error: 'Failed to run model' });
-  }
-});
-
-/* ---------------------------------------------------
-   CSV SUMMARY (LATEST PLOT)
---------------------------------------------------- */
-app.get('/api/plot-data/:farmerId.csv', async (req, res) => {
-  try {
-    const farmerId = normalizeFarmerId(req.params.farmerId);
-
-    const { rows } = await pool.query(
-      `SELECT
-        farmer_id,
-        ST_Y(ST_Centroid(plot_geom)) AS center_lat,
-        ST_X(ST_Centroid(plot_geom)) AS center_lng,
-        ST_Area(plot_geom::geography) * 0.000247105 AS area_acres
-       FROM plots
-       WHERE farmer_id = $1
-       ORDER BY created_at DESC
-       LIMIT 1`,
-      [farmerId]
-    );
-
-    if (!rows.length) return res.status(404).send('Plot not found');
-
-    const p = rows[0];
-    const csv = `farmer_id,center_lat,center_lng,area_acres
-${p.farmer_id},${p.center_lat},${p.center_lng},${p.area_acres}`;
-
-    res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', 'attachment; filename=plot_summary.csv');
-    res.send(csv);
-
-  } catch (err) {
-    console.error('❌ CSV error:', err);
-    res.status(500).send('CSV generation failed');
   }
 });
 
