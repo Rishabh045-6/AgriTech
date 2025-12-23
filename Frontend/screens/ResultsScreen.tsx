@@ -12,22 +12,6 @@ import {
   ActivityIndicator
 } from 'react-native';
 
-type VegetationIndices = {
-  NDVI: string;
-  GNDVI: string;
-  SAVI: string;
-  NDMI: string;
-  MSI: string;
-  NDWI: string;
-  NMDI: string;
-  NDRE: string;
-  CIredEdge: string;
-  CIgreen: string;
-  PSRI: string;
-  SIPI: string;
-};
-
-
 type ResultsScreenProps = {
   route: any;
   navigation: any;
@@ -103,7 +87,7 @@ export default function ResultsScreen({ route, navigation }: ResultsScreenProps)
     );
   }
 
-  const { stage, disease, pest, growthPerformance, ndviTrend, recommendations, healthMetrics, ndvi_stats } = results;
+  const { stage, disease, pest, growthPerformance, ndviTrend, recommendations, healthMetrics, ndvi_stats, window_df } = results;
 
   // Calculate plot area (simple approximation)
   const calculatePlotArea = () => {
@@ -122,45 +106,45 @@ export default function ResultsScreen({ route, navigation }: ResultsScreenProps)
     return 'N/A';
   };
 
-  // Get all vegetation indices from the first row of window_df
-  const getVegetationIndices = (): VegetationIndices => {
-    if (!results?.window_df || results.window_df.length === 0) {
+  // Get all vegetation indices from the window_df data
+  const getVegetationIndices = () => {
+    if (window_df && window_df.length > 0) {
+      // Get the most recent data point (last row)
+      const latestData = window_df[window_df.length - 1];
       return {
-        NDVI: 'N/A',
-        GNDVI: 'N/A',
-        SAVI: 'N/A',
-        NDMI: 'N/A',
-        MSI: 'N/A',
-        NDWI: 'N/A',
-        NMDI: 'N/A',
-        NDRE: 'N/A',
-        CIredEdge: 'N/A',
-        CIgreen: 'N/A',
-        PSRI: 'N/A',
-        SIPI: 'N/A'
+        NDVI: latestData.NDVI?.toFixed(3) || 'N/A',
+        GNDVI: latestData.GNDVI?.toFixed(3) || 'N/A',
+        SAVI: latestData.SAVI?.toFixed(3) || 'N/A',
+        NDMI: latestData.NDMI?.toFixed(3) || 'N/A',
+        MSI: latestData.MSI?.toFixed(3) || 'N/A',
+        NDWI: latestData.NDWI?.toFixed(3) || 'N/A',
+        NMDI: latestData.NMDI?.toFixed(3) || 'N/A',
+        NDRE: latestData.NDRE?.toFixed(3) || 'N/A',
+        CIredEdge: latestData.CIredEdge?.toFixed(3) || 'N/A',
+        CIgreen: latestData.CIgreen?.toFixed(3) || 'N/A',
+        PSRI: latestData.PSRI?.toFixed(3) || 'N/A',
+        SIPI: latestData.SIPI?.toFixed(3) || 'N/A'
       };
     }
+    return {};
+  };
 
-    const row = results.window_df[0];
+  const vegetationIndices = getVegetationIndices();
 
+  // Get all stage probabilities if available
+  const getAllStageProbabilities = () => {
+    if (results.stage && results.stage.all_probabilities) {
+      return results.stage.all_probabilities;
+    }
+    // If not available, return the single result with 100% for that stage
     return {
-      NDVI: row.NDVI?.toFixed(3) ?? 'N/A',
-      GNDVI: row.GNDVI?.toFixed(3) ?? 'N/A',
-      SAVI: row.SAVI?.toFixed(3) ?? 'N/A',
-      NDMI: row.NDMI?.toFixed(3) ?? 'N/A',
-      MSI: row.MSI?.toFixed(3) ?? 'N/A',
-      NDWI: row.NDWI?.toFixed(3) ?? 'N/A',
-      NMDI: row.NMDI?.toFixed(3) ?? 'N/A',
-      NDRE: row.NDRE?.toFixed(3) ?? 'N/A',
-      CIredEdge: row.CIredEdge?.toFixed(3) ?? 'N/A',
-      CIgreen: row.CIgreen?.toFixed(3) ?? 'N/A',
-      PSRI: row.PSRI?.toFixed(3) ?? 'N/A',
-      SIPI: row.SIPI?.toFixed(3) ?? 'N/A'
+      [results.stage.prediction]: results.stage.confidence,
+      'Other Stage 1': 0.0,
+      'Other Stage 2': 0.0
     };
   };
 
-
-  const vegetationIndices = getVegetationIndices();
+  const stageProbabilities = getAllStageProbabilities();
 
   return (
     <ScrollView style={styles.container}>
@@ -168,16 +152,6 @@ export default function ResultsScreen({ route, navigation }: ResultsScreenProps)
       <View style={styles.header}>
         <Text style={styles.title}>🌾 Crop Analysis Results</Text>
         <Text style={styles.subtitle}>{cropType.toUpperCase()}</Text>
-      </View>
-
-      {/* Plot Information */}
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Plot Information</Text>
-        <View style={styles.plotInfoContainer}>
-          <Text style={styles.plotInfoText}>Farmer ID: {farmerId}</Text>
-          <Text style={styles.plotInfoText}>Plot Area: {calculatePlotArea()} acres</Text>
-          <Text style={styles.plotInfoText}>Coordinates: {plotCoordinates.length} points</Text>
-        </View>
       </View>
 
       {/* Growth Performance Card */}
@@ -189,67 +163,37 @@ export default function ResultsScreen({ route, navigation }: ResultsScreenProps)
             <Text style={styles.growthStatus}>Status: {growthPerformance.report.status}</Text>
             <Text style={styles.growthRecommendation}>Recommendation: {growthPerformance.report.recommendation}</Text>
           </View>
-
+          
           <View style={styles.growthMetricsContainer}>
-            <GrowthMetricCard
-              name="Growth Rate"
-              score={growthPerformance.scores.growth_rate}
-              status={growthPerformance.healthMetrics.growth_rate.status}
+            <GrowthMetricCard 
+              name="Growth Rate" 
+              score={growthPerformance.scores.growth_rate} 
+              status={growthPerformance.healthMetrics.growth_rate.status} 
             />
-            <GrowthMetricCard
-              name="Biomass"
-              score={growthPerformance.scores.biomass}
-              status={growthPerformance.healthMetrics.biomass.status}
+            <GrowthMetricCard 
+              name="Biomass" 
+              score={growthPerformance.scores.biomass} 
+              status={growthPerformance.healthMetrics.biomass.status} 
             />
-            <GrowthMetricCard
-              name="Stability"
-              score={growthPerformance.scores.stability}
-              status={growthPerformance.healthMetrics.stability.status}
+            <GrowthMetricCard 
+              name="Stability" 
+              score={growthPerformance.scores.stability} 
+              status={growthPerformance.healthMetrics.stability.status} 
             />
           </View>
         </View>
       )}
 
-      {/* Stage Prediction Card */}
+      {/* Stage Prediction Card - Show all probabilities */}
       <View style={styles.card}>
         <Text style={styles.sectionTitle}>Growth Stage Prediction</Text>
-        <View style={styles.predictionContainer}>
-          <Text style={styles.stageText}>{stage.prediction}</Text>
-          <Text style={styles.confidenceeText}>{(stage.confidence * 100).toFixed(1)}% confidence</Text>
-        </View>
-      </View>
-
-      {/* Disease Detection Card */}
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Disease Detection</Text>
-        <View style={styles.diseaseContainer}>
-          <Text style={[
-            styles.diseaseText,
-            {
-              color: disease.risk_level === 'LOW' ? '#4CAF50' :
-                disease.risk_level === 'MEDIUM' ? '#FF9800' : '#F44336'
-            }
-          ]}>
-            {disease.risk_level} Risk
-          </Text>
-          <Text style={styles.diseaseProbText}>{(disease.probability * 100).toFixed(1)}% probability</Text>
-        </View>
-      </View>
-
-      {/* Pest Risk Card */}
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Pest Risk Assessment</Text>
-        <View style={styles.pestContainer}>
-          <Text style={[
-            styles.pestText,
-            {
-              color: pest.risk_level === 'Low' ? '#4CAF50' :
-                pest.risk_level === 'Medium' ? '#FF9800' : '#F44336'
-            }
-          ]}>
-            {pest.risk_level} Risk
-          </Text>
-          <Text style={styles.pestConfidenceText}>{(pest.confidence * 100).toFixed(1)}% confidence</Text>
+        <View style={styles.stageContainer}>
+          {Object.entries(stageProbabilities).map(([stageName, probability]: [string, any]) => (
+            <View key={stageName} style={styles.stageItem}>
+              <Text style={styles.stageName}>{stageName}</Text>
+              <Text style={styles.stageConfidence}>{(probability * 100).toFixed(1)}%</Text>
+            </View>
+          ))}
         </View>
       </View>
 
@@ -280,30 +224,59 @@ export default function ResultsScreen({ route, navigation }: ResultsScreenProps)
         </View>
       </View>
 
+      {/* Disease Detection Card */}
+      <View style={styles.card}>
+        <Text style={styles.sectionTitle}>Disease Detection</Text>
+        <View style={styles.diseaseContainer}>
+          <Text style={[
+            styles.diseaseText,
+            { color: disease.risk_level === 'LOW' ? '#4CAF50' : 
+                     disease.risk_level === 'MEDIUM' ? '#FF9800' : '#F44336' }
+          ]}>
+            {disease.risk_level} Risk
+          </Text>
+          <Text style={styles.diseaseProbText}>{(disease.probability * 100).toFixed(1)}% probability</Text>
+        </View>
+      </View>
+
+      {/* Pest Risk Card */}
+      <View style={styles.card}>
+        <Text style={styles.sectionTitle}>Pest Risk Assessment</Text>
+        <View style={styles.pestContainer}>
+          <Text style={[
+            styles.pestText,
+            { color: pest.risk_level === 'Low' ? '#4CAF50' : 
+                     pest.risk_level === 'Medium' ? '#FF9800' : '#F44336' }
+          ]}>
+            {pest.risk_level} Risk
+          </Text>
+          <Text style={styles.pestConfidenceText}>{(pest.confidence * 100).toFixed(1)}% confidence</Text>
+        </View>
+      </View>
+
       {/* Confidence Meters */}
       <View style={styles.card}>
         <Text style={styles.sectionTitle}>Confidence Levels</Text>
         <View style={styles.confidenceContainer}>
-          <ConfidenceMeter
-            label="Stage"
-            value={stage.confidence}
-            color="#4CAF50"
+          <ConfidenceMeter 
+            label="Stage" 
+            value={stage.confidence} 
+            color="#4CAF50" 
           />
-          <ConfidenceMeter
-            label="Disease"
-            value={disease.probability}
-            color={disease.risk_level === 'LOW' ? '#4CAF50' :
-              disease.risk_level === 'MEDIUM' ? '#FF9800' : '#F44336'}
+          <ConfidenceMeter 
+            label="Disease" 
+            value={disease.probability} 
+            color={disease.risk_level === 'LOW' ? '#4CAF50' : 
+                   disease.risk_level === 'MEDIUM' ? '#FF9800' : '#F44336'} 
           />
-          <ConfidenceMeter
-            label="Pest"
-            value={pest.confidence}
-            color={pest.risk_level === 'Low' ? '#4CAF50' :
-              pest.risk_level === 'Medium' ? '#FF9800' : '#F44336'}
+          <ConfidenceMeter 
+            label="Pest" 
+            value={pest.confidence} 
+            color={pest.risk_level === 'Low' ? '#4CAF50' : 
+                   pest.risk_level === 'Medium' ? '#FF9800' : '#F44336'} 
           />
         </View>
       </View>
-
 
       {/* NDVI Trend Chart */}
       <View style={styles.card}>
@@ -339,11 +312,11 @@ export default function ResultsScreen({ route, navigation }: ResultsScreenProps)
         <Text style={styles.sectionTitle}>Soil Health Metrics</Text>
         <View style={styles.healthMetricsContainer}>
           {healthMetrics && Object.entries(healthMetrics).map(([key, value]: [string, any]) => (
-            <HealthMetricCard
-              key={key}
-              name={key.charAt(0).toUpperCase() + key.slice(1)}
-              level={value.level}
-              status={value.status}
+            <HealthMetricCard 
+              key={key} 
+              name={key.charAt(0).toUpperCase() + key.slice(1)} 
+              level={value.level} 
+              status={value.status} 
             />
           ))}
         </View>
@@ -397,15 +370,12 @@ export default function ResultsScreen({ route, navigation }: ResultsScreenProps)
 }
 
 // Index Card Component
-const IndexCard = ({ label, value }: { label: string; value: string }) => (
+const IndexCard = ({ label, value }: { label: string, value: string }) => (
   <View style={styles.indexCard}>
     <Text style={styles.indexLabel}>{label}</Text>
-    <Text style={styles.indexValue}>
-      {value !== 'N/A' ? value : '—'}
-    </Text>
+    <Text style={styles.indexValue}>{value}</Text>
   </View>
 );
-
 
 // Confidence Meter Component
 const ConfidenceMeter = ({ label, value, color }: { label: string, value: number, color: string }) => (
@@ -413,44 +383,10 @@ const ConfidenceMeter = ({ label, value, color }: { label: string, value: number
     <Text style={styles.confidenceLabel}>{label}</Text>
     <View style={styles.confidenceMeter}>
       <View style={[styles.confidenceFill, { width: `${value * 100}%`, backgroundColor: color }]} />
-      <Text style={styles.confidenceText}>{(value * 100).toFixed(1)}%</Text>
+      <Text style={styles.confidenceeText}>{(value * 100).toFixed(1)}%</Text>
     </View>
   </View>
 );
-
-// Growth Metric Card Component
-const GrowthMetricCard = ({
-  name,
-  score,
-  status
-}: {
-  name: string;
-  score: number;
-  status: string;
-}) => {
-  const getStatusColor = () => {
-    if (status.toLowerCase().includes('good')) return '#4CAF50';
-    if (status.toLowerCase().includes('moderate')) return '#FF9800';
-    if (status.toLowerCase().includes('poor')) return '#F44336';
-    return '#666';
-  };
-
-  return (
-    <View style={styles.growthMetricCard}>
-      <Text style={styles.growthMetricName}>{name}</Text>
-      <Text style={styles.growthMetricValue}>{score.toFixed(1)}</Text>
-      <Text
-        style={[
-          styles.growthMetricStatus,
-          { color: getStatusColor() }
-        ]}
-      >
-        {status}
-      </Text>
-    </View>
-  );
-};
-
 
 // Health Metric Card Component
 const HealthMetricCard = ({ name, level, status }: { name: string, level: string, status: string }) => {
@@ -471,6 +407,34 @@ const HealthMetricCard = ({ name, level, status }: { name: string, level: string
     </View>
   );
 };
+
+// Growth Metric Card Component
+const GrowthMetricCard = ({ name, score, status }: { name: string, score: number, status: string }) => {
+  const getStatusColor = () => {
+    if (score >= 80) return '#4CAF50'; // Green
+    if (score >= 60) return '#8BC34A'; // Light Green
+    if (score >= 40) return '#FFC107'; // Amber
+    return '#F44336'; // Red
+  };
+
+  return (
+    <View style={styles.growthMetricCard}>
+      <Text style={styles.growthMetricName}>{name}</Text>
+      <Text style={styles.growthMetricValue}>{score.toFixed(1)}</Text>
+      <Text style={[styles.growthMetricStatus, { color: getStatusColor() }]}>
+        {status}
+      </Text>
+    </View>
+  );
+};
+
+// Stage Item Component
+const StageItem = ({ stageName, probability }: { stageName: string, probability: number }) => (
+  <View style={styles.stageItem}>
+    <Text style={styles.stageName}>{stageName}</Text>
+    <Text style={styles.stageConfidence}>{(probability * 100).toFixed(1)}%</Text>
+  </View>
+);
 
 // Stat Item Component
 const StatItem = ({ label, value }: { label: string, value: string }) => (
@@ -539,13 +503,26 @@ const styles = StyleSheet.create({
     color: '#333',
     textAlign: 'center'
   },
-  plotInfoContainer: {
+  stageContainer: {
     paddingVertical: 10
   },
-  plotInfoText: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 5
+  stageItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee'
+  },
+  stageName: {
+    fontSize: 16,
+    color: '#333',
+    fontWeight: '500'
+  },
+  stageConfidence: {
+    fontSize: 16,
+    color: '#2E8B57',
+    fontWeight: 'bold'
   },
   growthContainer: {
     paddingVertical: 10
@@ -562,6 +539,7 @@ const styles = StyleSheet.create({
     marginBottom: 5
   },
   growthRecommendation: {
+    justifyContent: 'center',
     fontSize: 14,
     color: '#666',
     fontStyle: 'italic'
@@ -572,7 +550,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between'
   },
   growthMetricCard: {
-    width: (width - 52) / 3, // Three cards per row
+    width: (width - 88) / 2, // Three cards per row
     backgroundColor: '#F8F9FA',
     padding: 12,
     borderRadius: 8,
@@ -677,7 +655,7 @@ const styles = StyleSheet.create({
     color: 'white'
   },
   chartContainer: {
-    padding: 10
+    padding: 0
   },
   trendChart: {
     flexDirection: 'row',
@@ -713,7 +691,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between'
   },
   statItem: {
-    width: (width - 52) / 2,
+    width: (width - 88) / 2,
     padding: 10,
     marginBottom: 10,
     backgroundColor: '#F8F9FA',
@@ -736,7 +714,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between'
   },
   healthMetricCard: {
-    width: (width - 52) / 2,
+    width: (width - 88) / 2,
     backgroundColor: '#F8F9FA',
     padding: 15,
     borderRadius: 8,

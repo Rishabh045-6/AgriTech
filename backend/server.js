@@ -6,6 +6,7 @@ const cors = require('cors');
 const { exec } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 // Use environment variables
 const app = express();
@@ -23,12 +24,27 @@ const pool = new Pool({
   port: process.env.DB_PORT || 5432,
   database: process.env.DB_NAME || 'agritech',
   user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD, // ❌ No default password - will throw error if not set
+  password: process.env.DB_PASSWORD, // No default password
 });
 
 /* ---------------------------------------------------
-   CREATE TABLE
+   CREATE TABLES
 --------------------------------------------------- */
+// Create users table
+pool.query(`
+  CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(100) UNIQUE NOT NULL,
+    farmer_id VARCHAR(100) UNIQUE NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  );
+`).then(() => {
+  console.log('✅ Users table ready');
+}).catch(err => {
+  console.error('❌ Users table creation failed:', err);
+});
+
+// Create plots table
 pool.query(`
   CREATE TABLE IF NOT EXISTS plots (
     id SERIAL PRIMARY KEY,
@@ -39,7 +55,83 @@ pool.query(`
 `).then(() => {
   console.log('✅ Plots table ready');
 }).catch(err => {
-  console.error('❌ Table creation failed:', err);
+  console.error('❌ Plots table creation failed:', err);
+});
+
+/* ---------------------------------------------------
+   LOGIN/REGISTER ENDPOINT
+--------------------------------------------------- */
+app.post('/api/login', async (req, res) => {
+  try {
+    const { username } = req.body;
+
+    if (!username) {
+      return res.status(400).json({ error: 'Username is required' });
+    }
+
+    // Check if user already exists
+    const existingUser = await pool.query(
+      'SELECT farmer_id FROM users WHERE username = $1',
+      [username]
+    );
+
+    let farmerId;
+
+    if (existingUser.rows.length > 0) {
+      // User exists, return their existing farmer_id
+      farmerId = existingUser.rows[0].farmer_id;
+      console.log(`Returning existing user: ${username} with farmer_id: ${farmerId}`);
+    } else {
+      // Create new user with unique farmer_id
+      const timestamp = Date.now();
+      const randomString = crypto.randomBytes(4).toString('hex');
+      farmerId = `farmer_${timestamp}${randomString}`;
+      
+      await pool.query(
+        'INSERT INTO users (username, farmer_id) VALUES ($1, $2)',
+        [username, farmerId]
+      );
+      
+      console.log(`Created new user: ${username} with farmer_id: ${farmerId}`);
+    }
+
+    res.json({
+      success: true,
+      farmerId: farmerId,
+      username: username
+    });
+
+  } catch (err) {
+    console.error('Login error:', err);
+    res.status(500).json({ error: 'Failed to process login' });
+  }
+});
+
+/* ---------------------------------------------------
+   GET USER BY FARMER ID
+--------------------------------------------------- */
+app.get('/api/user/:farmerId', async (req, res) => {
+  try {
+    const { farmerId } = req.params;
+
+    const result = await pool.query(
+      'SELECT username, farmer_id, created_at FROM users WHERE farmer_id = $1',
+      [farmerId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({
+      success: true,
+      user: result.rows[0]
+    });
+
+  } catch (err) {
+    console.error('Get user error:', err);
+    res.status(500).json({ error: 'Failed to get user' });
+  }
 });
 
 /* ---------------------------------------------------
@@ -306,13 +398,28 @@ app.post('/api/run-model', async (req, res) => {
         const result = JSON.parse(stdout.trim());
         
         if (result.success) {
-          // ✅ SEND COMPLETE WINDOW_DF DATA TO FRONTEND
-          // This includes ALL vegetation indices (NDVI, GNDVI, SAVI, NDMI, etc.)
-          res.json({
-            ...result,
-            // Make sure window_df is included with all indices
-            window_df: result.window_df || [] // This contains all 19 features
-          });
+          // ✅ Ensure window_df is properly formatted for JSON
+          if (result.window_df) {
+            // Convert any problematic data types
+            const formattedWindowDf = result.window_df.map(row => {
+              const cleanedRow = {};
+              for (const [key, value] of Object.entries(row)) {
+                if (value instanceof Date) {
+                  cleanedRow[key] = value.toISOString();
+                } else if (typeof value === 'number' && !isNaN(value)) {
+                  cleanedRow[key] = value;
+                } else if (value === null || value === undefined) {
+                  cleanedRow[key] = null;
+                } else {
+                  cleanedRow[key] = value;
+                }
+              }
+              return cleanedRow;
+            });
+            result.window_df = formattedWindowDf;
+          }
+          
+          res.json(result);
         } else {
           res.status(500).json({ 
             error: result.error || 'Model prediction failed',

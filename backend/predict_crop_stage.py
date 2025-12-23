@@ -463,7 +463,12 @@ def predict_crop_analysis(farmer_id, crop_type, coordinates):
                 "cropType": crop_type,
                 "stage": {
                     "prediction": predicted_stage,
-                    "confidence": stage_confidence
+                    "confidence": stage_confidence,
+                    "all_probabilities": {
+                        "Vegetative": float(stage_probabilities[0]) if len(stage_probabilities) > 0 else 0.0,
+                        "Reproductive": float(stage_probabilities[1]) if len(stage_probabilities) > 1 else 0.0,
+                        "Ripening": float(stage_probabilities[2]) if len(stage_probabilities) > 2 else 0.0
+                    }
                 },
                 "disease": {
                     "probability": disease_prob,
