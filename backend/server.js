@@ -306,7 +306,13 @@ app.post('/api/run-model', async (req, res) => {
         const result = JSON.parse(stdout.trim());
         
         if (result.success) {
-          res.json(result);
+          // ✅ SEND COMPLETE WINDOW_DF DATA TO FRONTEND
+          // This includes ALL vegetation indices (NDVI, GNDVI, SAVI, NDMI, etc.)
+          res.json({
+            ...result,
+            // Make sure window_df is included with all indices
+            window_df: result.window_df || [] // This contains all 19 features
+          });
         } else {
           res.status(500).json({ 
             error: result.error || 'Model prediction failed',

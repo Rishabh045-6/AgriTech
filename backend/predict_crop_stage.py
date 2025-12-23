@@ -1,5 +1,6 @@
 import sys
 import json
+from unittest import result
 import numpy as np
 import torch
 import os
@@ -445,6 +446,18 @@ def predict_crop_analysis(farmer_id, crop_type, coordinates):
                 ]
             }
 
+            # Convert DataFrame to JSON-serializable format
+            window_df_data = []
+            for row in result["window_df"].to_dict("records"):
+                cleaned_row = {}
+                for key, value in row.items():
+                    if pd.api.types.is_datetime64_any_dtype(type(value)):           
+                        cleaned_row[key] = str(value)  # Convert datetime to string
+                    elif hasattr(value, 'isoformat'):  # Pandas Timestamp
+                        cleaned_row[key] = value.isoformat()  # Convert to ISO string
+                    else:
+                        cleaned_row[key] = value
+                window_df_data.append(cleaned_row)
             success_result = {
                 "success": True,
                 "cropType": crop_type,
@@ -473,6 +486,7 @@ def predict_crop_analysis(farmer_id, crop_type, coordinates):
                         'stage_progress': {'level': f"{growth_scores['stage_progress']:.1f}", 'status': 'Good' if growth_scores['stage_progress'] >= 60 else 'Needs attention'}
                     }
                 },
+                "window_df": window_df_data,  # ✅ FIXED: JSON-serializable format
                 "ndviTrend": ndvi_trend_data,
                 "recommendations": {
                     "stage": stage_recommendations.get(predicted_stage, ["Monitor crop health regularly"]),
