@@ -1,6 +1,5 @@
 import sys
 import json
-from unittest import result
 import numpy as np
 import torch
 import os
@@ -8,10 +7,7 @@ import pandas as pd
 import warnings
 from contextlib import contextmanager
 import io
-
-# Add this line at the very beginning of the file
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
+from datetime import datetime
 
 # 🚨 HARD SILENCE MODE
 os.environ["PYTHONWARNINGS"] = "ignore"
@@ -140,124 +136,57 @@ def load_model(crop_type, model_type="stage"):
         print(error_msg, file=sys.stderr)
         sys.exit(1)
 
-def slope(series):
-    t = np.arange(len(series))
-    return np.polyfit(t, series, 1)[0]
-
-def stats(series):
-    return {
-        "mean": np.mean(series),
-        "std": np.std(series),
-        "slope": slope(series),
-        "min": np.min(series),
-        "max": np.max(series)
-    }
-
-def growth_rate_score(ndvi):
-    """Calculate growth rate score based on NDVI slope"""
-    s = stats(ndvi)["slope"]
-    # Assuming 0 slope = 50, -0.03 = 0, +0.03 = 100
-    return np.clip((s + 0.03) / 0.06 * 100, 0, 100)
-
-def biomass_score(ndvi):
-    """Calculate biomass score based on NDVI mean"""
-    m = stats(ndvi)["mean"]
-    # Assuming 0.2 = 0, 0.8 = 100
-    return np.clip((m - 0.2) / 0.6 * 100, 0, 100)
-
-def stability_score(ndvi):
-    """Calculate stability score based on NDVI std deviation"""
-    std = stats(ndvi)["std"]
-    # Lower std is better
-    return np.clip(100 - (std / 0.15 * 100), 0, 100)
-
-def stage_progress_score(ndvi, stage):
-    """Calculate stage progress score based on crop stage"""
-    peak = stats(ndvi)["max"]
+def serialize_dataframe(df):
+    """Convert DataFrame to JSON-serializable format"""
+    if df is None:
+        return None
     
-    expected = {
-        1: (0.3, 0.6),   # Early stage
-        2: (0.6, 0.8),   # Middle stage
-        3: (0.7, 0.9)    # Late stage
-    }
+    # Convert DataFrame to list of dictionaries
+    records = df.to_dict('records')
     
-    low, high = expected.get(stage, (0.3, 0.8))
+    serialized_records = []
+    for record in records:
+        clean_record = {}
+        for key, value in record.items():
+            if pd.isna(value):
+                clean_record[key] = None
+            elif isinstance(value, (pd.Timestamp, datetime)):
+                clean_record[key] = value.isoformat()  # Convert timestamp to ISO string
+            elif isinstance(value, (int, float)):
+                if pd.isna(value):
+                    clean_record[key] = None
+                else:
+                    clean_record[key] = float(value) if isinstance(value, float) else int(value)
+            elif isinstance(value, str):
+                clean_record[key] = value
+            elif isinstance(value, bool):
+                clean_record[key] = value
+            else:
+                # Convert any other types to string as fallback
+                clean_record[key] = str(value) if value is not None else None
+        serialized_records.append(clean_record)
     
-    if peak < low:
-        return 30
-    elif peak > high:
-        return 85
-    return 60 + (peak - low) / (high - low) * 40
-
-def calculate_all_scores(ndvi_series, stage=2):
-    """Calculate all growth scores"""
-    return {
-        'growth_rate': growth_rate_score(ndvi_series),
-        'biomass': biomass_score(ndvi_series),
-        'stability': stability_score(ndvi_series),
-        'stage_progress': stage_progress_score(ndvi_series, stage)
-    }
-
-def overall_health_score(growth, biomass, stability, stage_progress):
-    """Calculate weighted overall health score"""
-    return round(
-        0.35 * growth +
-        0.30 * biomass +
-        0.20 * stability +
-        0.15 * stage_progress,
-        1
-    )
-
-def calculate_health_report(scores):
-    """Generate a comprehensive health report"""
-    overall = overall_health_score(
-        scores['growth_rate'],
-        scores['biomass'],
-        scores['stability'],
-        scores['stage_progress']
-    )
-    
-    # Determine status based on score
-    if overall >= 80:
-        status = "Excellent"
-        color = "green"
-        recommendation = "Crops are performing optimally. Continue current practices."
-    elif overall >= 60:
-        status = "Good"
-        color = "blue"
-        recommendation = "Crops are healthy. Monitor for any changes."
-    elif overall >= 40:
-        status = "Fair"
-        color = "orange"
-        recommendation = "Some improvement needed. Check irrigation and nutrients."
-    else:
-        status = "Poor"
-        color = "red"
-        recommendation = "Immediate attention required. Consider consulting an agronomist."
-    
-    return {
-        'overall_score': overall,
-        'status': status,
-        'color': color,
-        'recommendation': recommendation,
-        'component_scores': scores
-    }
+    return serialized_records
 
 def predict_crop_analysis(farmer_id, crop_type, coordinates):
     """Main function to predict crop stage, disease, pest risk, AND growth performance"""
     try:
         with suppress_stdout():
-            from data_fetcher import fetch_data_for_demo, CROP_CONFIG
+            from data_fetcher import fetch_data_for_analysis
+            from config import CROP_CONFIG
 
             if crop_type not in CROP_CONFIG:
                 raise ValueError(f"Invalid crop type: {crop_type}")
 
             corners = [(p['longitude'], p['latitude']) for p in coordinates]
 
-            result = fetch_data_for_demo(
+            # Fetch data using the enhanced fetcher that includes water stress analysis
+            result = fetch_data_for_analysis(
                 corners=corners,
                 crop_type=crop_type,
-                current_date=None
+                current_stage="Vegetative",  # Default stage - this will be updated
+                current_date=None,
+                num_windows=4
             )
 
             if result is None:
@@ -279,17 +208,60 @@ def predict_crop_analysis(farmer_id, crop_type, coordinates):
             except:
                 scaler = None
 
-            # Prepare features
-            features = result['window_features']
+            # Get the raw DataFrame from result - FIXED: Handle timestamp serialization
+            if 'raw_df' in result:
+                raw_df = result['raw_df']
+            elif 'window_df' in result:
+                raw_df = result['window_df']
+            else:
+                # If neither exists, try to get from windows
+                if 'windows' in result and len(result['windows']) > 0:
+                    raw_df = result['windows'][0]['data']  # Use first window's data
+                else:
+                    raise KeyError("'raw_df', 'window_df', or 'windows' not found in result")
+
+            # Prepare features from the raw data
+            # Select the feature columns that match your model expectations
+            feature_cols = ['B2', 'B3', 'B4', 'B5', 'B8', 'B11', 'B12',
+                           'NDVI', 'GNDVI', 'SAVI', 'NDMI', 'MSI', 'NDWI', 'NMDI',
+                           'NDRE', 'CIredEdge', 'CIgreen', 'PSRI', 'SIPI']
+            
+            # Check which columns actually exist in the dataframe
+            available_cols = [col for col in feature_cols if col in raw_df.columns]
+            missing_cols = [col for col in feature_cols if col not in raw_df.columns]
+            
+            if missing_cols:
+                print(f"Warning: Missing columns: {missing_cols}", file=sys.stderr)
+                # Fill missing columns with zeros
+                for col in missing_cols:
+                    raw_df[col] = 0
+            
+            # Use the available columns
+            features_df = raw_df[available_cols]
+            
+            # Convert to numpy array for model
+            features_array = features_df.values
+            
+            # Take the most recent window_size days for model input
+            window_size = CROP_CONFIG[crop_type]['window_size']
+            if len(features_array) >= window_size:
+                # Use the most recent window_size days
+                window_features = features_array[-window_size:]
+            else:
+                # If not enough data, pad with the last available data
+                needed = window_size - len(features_array)
+                repeated_data = np.tile(features_array[-1:], (needed, 1))
+                window_features = np.vstack([repeated_data, features_array])
+            
+            # Reshape for model (batch_size, sequence_length, features)
+            features_scaled = window_features.reshape(1, window_features.shape[0], window_features.shape[1])
             
             # Scale features if scaler exists
             if scaler:
-                original_shape = features.shape
-                features_flat = features.reshape(-1, features.shape[2])
+                original_shape = features_scaled.shape
+                features_flat = features_scaled.reshape(-1, features_scaled.shape[2])
                 features_scaled_flat = scaler.transform(features_flat)
                 features_scaled = features_scaled_flat.reshape(original_shape)
-            else:
-                features_scaled = features
 
             # Get actual sequence length from features
             actual_seq_len = features_scaled.shape[1]
@@ -310,22 +282,30 @@ def predict_crop_analysis(farmer_id, crop_type, coordinates):
             predicted_stage = stage_names[predicted_stage_idx]
             stage_confidence = float(stage_probabilities[predicted_stage_idx])
 
-            # Disease prediction
+            # Disease prediction - FIXED: Handle missing pos_encoder
             with torch.no_grad():
                 x = torch.tensor(features_scaled, dtype=torch.float32)
-                disease_logit = disease_model(x)
-                raw_disease_prob = torch.sigmoid(disease_logit).item()
-                
-                # Run through encoder
+
+                # 1️⃣ Project features FIRST (19 → 64)
                 x = disease_model.input_proj(x)
+
+                # 2️⃣ Add positional encoding ONLY if model expects it
+                if hasattr(disease_model, 'pos_encoder'):
+                    pe = disease_model.pos_encoder[:, :x.shape[1], :].to(x.device)
+                    x = x + pe
+
+                # 3️⃣ Transformer encoder
                 x = disease_model.transformer_encoder(x)
+
+                # 4️⃣ Pool + classify
                 x = x.mean(dim=1)
                 x = disease_model.classifier(x)
+
                 raw_disease_prob = torch.sigmoid(x).item()
 
             # CALIBRATION: Adjust disease probability based on NDVI
-            ndvi_mean = result["window_df"]["NDVI"].mean()
-            ndvi_trend = result["window_df"]["NDVI"].iloc[-1] - result["window_df"]["NDVI"].iloc[0]
+            ndvi_mean = raw_df["NDVI"].mean()
+            ndvi_trend = raw_df["NDVI"].iloc[-1] - raw_df["NDVI"].iloc[0]
             
             if raw_disease_prob < 0.01:
                 if ndvi_mean > 0.5:
@@ -344,18 +324,24 @@ def predict_crop_analysis(farmer_id, crop_type, coordinates):
 
             disease_prob = max(0.01, min(0.99, disease_prob))
 
-            # Pest risk prediction
+            # Pest risk prediction - FIXED: Handle missing pos_embed
             with torch.no_grad():
                 x = torch.tensor(features_scaled, dtype=torch.float32)
-                pest_logits = pest_model(x)
-                pest_probabilities = torch.softmax(pest_logits, dim=1).numpy()[0]
-                predicted_pest_idx = np.argmax(pest_probabilities)
-                
-                # Run through encoder
+
                 x = pest_model.input_proj(x)
+
+                # 2️⃣ Positional embedding (only if present)
+                if hasattr(pest_model, 'pos_embed'):
+                    pe = pest_model.pos_embed[:, :x.shape[1], :].to(x.device)
+                    x = x + pe
+
+                # 3️⃣ Encoder
                 x = pest_model.encoder(x)
+
+                # 4️⃣ Pool + head
                 x = x.mean(dim=1)
                 pest_logits = pest_model.head(x)
+
                 pest_probabilities = torch.softmax(pest_logits, dim=1).numpy()[0]
                 predicted_pest_idx = np.argmax(pest_probabilities)
 
@@ -364,8 +350,15 @@ def predict_crop_analysis(farmer_id, crop_type, coordinates):
             predicted_pest_risk = pest_risk_names[predicted_pest_idx]
             pest_confidence = float(pest_probabilities[predicted_pest_idx])
 
-            # Calculate growth performance scores using your functions
-            ndvi_series = result["window_df"]["NDVI"].values
+            # Calculate growth performance scores using your new system
+            from growth_performance import calculate_all_scores, calculate_health_report, overall_health_score
+            from growth_performance.yield_calculator import calculate_yield_score, estimate_yield_kg_ha, get_yield_category
+            from growth_performance.biomass_calculator import calculate_biomass_score, estimate_biomass_tons_ha
+            from growth_performance.penalty_calculator import calculate_disease_penalty, calculate_pest_penalty, get_disease_level, get_pest_level
+            from growth_performance.water_stress import calculate_water_stress_score, get_water_stress_level
+
+            # Calculate growth performance scores
+            ndvi_series = raw_df["NDVI"].values
             growth_scores = calculate_all_scores(ndvi_series, 2)  # Default to middle stage
             overall_score = overall_health_score(
                 growth_scores['growth_rate'],
@@ -376,13 +369,37 @@ def predict_crop_analysis(farmer_id, crop_type, coordinates):
             
             growth_report = calculate_health_report(growth_scores)
 
-            print(f"✅ Growth performance calculated: Overall Score = {overall_score:.2f}", file=sys.stderr)
+            # Calculate yield scores
+            yield_score, yield_components = calculate_yield_score(
+                features_scaled[0],  # Use the window features
+                predicted_stage_idx,  # Stage index
+                1 if disease_prob > 0.5 else 0,  # Disease prediction (0=healthy, 1=diseased)
+                predicted_pest_idx,  # Pest risk index
+                ndvi_series  # NDVI series
+            )
+            
+            # Estimate yield
+            estimated_yield, yield_breakdown = estimate_yield_kg_ha(yield_score, crop_type, predicted_stage_idx + 1)
+            yield_category = get_yield_category(yield_score)
 
-            # Get NDVI trend
-            ndvi_trend_data = [
-                {"date": str(r["date"]), "ndvi": float(r["NDVI"])}
-                for r in result["window_df"].to_dict("records")
-            ]
+            # Calculate penalties
+            disease_penalty = calculate_disease_penalty(1 if disease_prob > 0.5 else 0)
+            pest_penalty = calculate_pest_penalty(predicted_pest_idx)
+            
+            # Get level information
+            disease_level = get_disease_level(disease_prob)
+            pest_level = get_pest_level(predicted_pest_idx)
+
+            print(f"✅ Growth performance calculated: Overall Score = {overall_score:.2f}", file=sys.stderr)
+            print(f"✅ Yield calculated: {estimated_yield:.2f} kg/ha", file=sys.stderr)
+
+            # Get NDVI trend - FIXED: Handle timestamp serialization
+            ndvi_trend_data = []
+            for r in raw_df.to_dict("records"):
+                ndvi_trend_data.append({
+                    "date": str(r["date"]) if hasattr(r["date"], 'isoformat') else r["date"].isoformat() if isinstance(r["date"], (pd.Timestamp, datetime)) else str(r["date"]),
+                    "ndvi": float(r["NDVI"])
+                })
 
             # Generate recommendations
             stage_recommendations = {
@@ -446,29 +463,58 @@ def predict_crop_analysis(farmer_id, crop_type, coordinates):
                 ]
             }
 
-            # Convert DataFrame to JSON-serializable format
-            window_df_data = []
-            for row in result["window_df"].to_dict("records"):
-                cleaned_row = {}
-                for key, value in row.items():
-                    if pd.api.types.is_datetime64_any_dtype(type(value)):           
-                        cleaned_row[key] = str(value)  # Convert datetime to string
-                    elif hasattr(value, 'isoformat'):  # Pandas Timestamp
-                        cleaned_row[key] = value.isoformat()  # Convert to ISO string
-                    else:
-                        cleaned_row[key] = value
-                window_df_data.append(cleaned_row)
+            # ===============================
+            # ADD NUTRIENT DEFICIENCY ANALYSIS
+            # ===============================
+            from nutrient_analysis import analyze_nutrient_deficiency, extract_window_features
+            
+            # Extract features for nutrient analysis
+            window_features_list = []
+            # Use the window data we prepared
+            window_data = raw_df[feature_cols].values
+            window_features = extract_window_features(window_data)
+            if window_features:
+                window_features_list.append(window_features)
+            
+            # Perform nutrient analysis
+            nutrient_results = None
+            if window_features_list:
+                nutrient_results = analyze_nutrient_deficiency(window_features_list, predicted_stage)
+            
+            # ===============================
+            # ADD WATER STRESS ANALYSIS
+            # ===============================
+            from water_stress_analysis import analyze_all_windows, calculate_water_stress_score, get_moisture_status
+            
+            # Create windows for water stress analysis - FIXED: Handle timestamp serialization
+            water_stress_analysis = None
+            if len(raw_df) >= window_size:
+                # Create windows for water stress analysis - FIXED: Convert timestamps
+                window_data = raw_df.tail(window_size).copy()
+                # Convert date column to string to avoid timestamp issues
+                window_data_serialized = window_data.copy()
+                if 'date' in window_data_serialized.columns:
+                    window_data_serialized['date'] = pd.to_datetime(window_data_serialized['date']).dt.strftime('%Y-%m-%d')
+                
+                windows_data = [{
+                    'window_id': 'Current',
+                    'dates_str': f"{window_data.iloc[0]['date'].strftime('%b %d') if hasattr(window_data.iloc[0]['date'], 'strftime') else str(window_data.iloc[0]['date'])} - {window_data.iloc[-1]['date'].strftime('%b %d') if hasattr(window_data.iloc[-1]['date'], 'strftime') else str(window_data.iloc[-1]['date'])}",
+                    'start_date': window_data.iloc[0]['date'].strftime('%Y-%m-%d') if hasattr(window_data.iloc[0]['date'], 'strftime') else str(window_data.iloc[0]['date']),
+                    'end_date': window_data.iloc[-1]['date'].strftime('%Y-%m-%d') if hasattr(window_data.iloc[-1]['date'], 'strftime') else str(window_data.iloc[-1]['date']),
+                    'mean_values': window_data[feature_cols].mean().to_dict()
+                }]
+                
+                water_stress_analysis = analyze_all_windows(windows_data, predicted_stage)
+
+            # Format raw_df for JSON response - FIXED: Handle timestamp serialization
+            raw_df_json = serialize_dataframe(raw_df)
+
             success_result = {
                 "success": True,
                 "cropType": crop_type,
                 "stage": {
                     "prediction": predicted_stage,
-                    "confidence": stage_confidence,
-                    "all_probabilities": {
-                        "Vegetative": float(stage_probabilities[0]) if len(stage_probabilities) > 0 else 0.0,
-                        "Reproductive": float(stage_probabilities[1]) if len(stage_probabilities) > 1 else 0.0,
-                        "Ripening": float(stage_probabilities[2]) if len(stage_probabilities) > 2 else 0.0
-                    }
+                    "confidence": stage_confidence
                 },
                 "disease": {
                     "probability": disease_prob,
@@ -491,7 +537,21 @@ def predict_crop_analysis(farmer_id, crop_type, coordinates):
                         'stage_progress': {'level': f"{growth_scores['stage_progress']:.1f}", 'status': 'Good' if growth_scores['stage_progress'] >= 60 else 'Needs attention'}
                     }
                 },
-                "window_df": window_df_data,  # ✅ FIXED: JSON-serializable format
+                "yield": {
+                    "score": yield_score,
+                    "estimated_yield_kg_ha": estimated_yield,
+                    "category": yield_category,
+                    "breakdown": yield_breakdown,
+                    "components": yield_components
+                },
+                "penalties": {
+                    "disease_penalty": disease_penalty,
+                    "pest_penalty": pest_penalty,
+                    "disease_level": disease_level,
+                    "pest_level": pest_level
+                },
+                "nutrientDeficiency": nutrient_results,  # ADD NUTRIENT RESULTS
+                "waterStress": water_stress_analysis,  # ADD WATER STRESS ANALYSIS
                 "ndviTrend": ndvi_trend_data,
                 "recommendations": {
                     "stage": stage_recommendations.get(predicted_stage, ["Monitor crop health regularly"]),
@@ -507,9 +567,10 @@ def predict_crop_analysis(farmer_id, crop_type, coordinates):
                 "ndvi_stats": {
                     "mean": float(ndvi_mean),
                     "trend": float(ndvi_trend),
-                    "min": float(result["window_df"]["NDVI"].min()),
-                    "max": float(result["window_df"]["NDVI"].max())
-                }
+                    "min": float(raw_df["NDVI"].min()),
+                    "max": float(raw_df["NDVI"].max())
+                },
+                "window_df": raw_df_json  # SEND FORMATTED WINDOW_DF WITHOUT TIMESTAMPS
             }
 
         print(json.dumps(success_result))

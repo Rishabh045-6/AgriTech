@@ -8,6 +8,9 @@ import MapScreen from './screens/MapScreen';
 import ResultsScreen from './screens/ResultsScreen';
 import PlotFormScreen from './screens/PlotformScreen';
 import CropSelectionScreen from './screens/CropSelectionScreen';
+import DiseaseResultScreen from './screens/DiseaseResultScreen';
+import PestResultScreen from './screens/PestResultScreen';
+import StageResultsScreen from './screens/StageResultsScreen';
 
 export type RootStackParamList = {
   Login: undefined;
@@ -16,6 +19,10 @@ export type RootStackParamList = {
   Results: undefined;
   CropSelection: undefined;
   PlotForm: undefined;
+  DiseaseResult: undefined;
+  PestResult: undefined;
+  StageResult: undefined;
+
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -46,6 +53,9 @@ export default function App() {
           component={ResultsScreen}
           options={{ headerTitle: 'Analysis Results' }} />
         <Stack.Screen name="CropSelection" component={CropSelectionScreen} />
+        <Stack.Screen name="StageResult" component={StageResultsScreen} />
+        <Stack.Screen name="DiseaseResult" component={DiseaseResultScreen} />
+        <Stack.Screen name="PestResult" component={PestResultScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

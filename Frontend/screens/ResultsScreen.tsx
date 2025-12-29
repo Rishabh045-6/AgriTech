@@ -1,24 +1,232 @@
-// screens/ResultsScreen.tsx
 import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
   ScrollView,
   StyleSheet,
-  Alert,
   Platform,
   TouchableOpacity,
-  Dimensions,
   ActivityIndicator
 } from 'react-native';
 
-type ResultsScreenProps = {
-  route: any;
-  navigation: any;
+/* =========================
+   Helper functions
+========================= */
+const getDiseaseExplanation = (risk: string) => {
+  if (risk === 'LOW') return 'Crop shows no visible disease stress.';
+  if (risk === 'MEDIUM') return 'Early disease signs possible. Monitor closely.';
+  return 'High disease stress detected. Immediate action recommended.';
 };
 
-export default function ResultsScreen({ route, navigation }: ResultsScreenProps) {
-  const { farmerId, cropType, plotCoordinates, modelResults } = route.params;
+const getPestExplanation = (risk: string) => {
+  if (risk === 'Low') return 'Pest pressure is minimal.';
+  if (risk === 'Medium') return 'Moderate pest activity. Increase monitoring.';
+  return 'High pest pressure detected. Control measures advised.';
+};
+
+const getYieldExplanation = (category: string) => {
+  if (category === 'high') return 'Yield potential is strong compared to average.';
+  if (category === 'medium') return 'Yield is near expected average.';
+  return 'Yield is below average. Stress factors are limiting production.';
+};
+
+/* =========================
+   Summary Section
+========================= */
+const SummarySection = ({ results }: { results: any }) => {
+  const [showDetails, setShowDetails] = useState(false);
+
+  const { stage, disease, pest, yield: yieldData } = results;
+
+  return (
+    <View style={styles.resultCard}>
+      <Text style={styles.sectionTitle}>📊 Crop Summary</Text>
+
+      {/* Stage */}
+      <Text style={styles.summaryText}>
+        🌱 Stage: <Text style={styles.bold}>{stage.prediction}</Text>
+      </Text>
+      <Text style={styles.subText}>
+        Confidence: {(stage.confidence * 100).toFixed(1)}%
+      </Text>
+
+      {/* Disease */}
+      <Text style={styles.summaryText}>
+        🦠 Disease Risk: <Text style={styles.bold}>{disease.risk_level}</Text>
+      </Text>
+      <Text style={styles.subText}>
+        Probability: {(disease.probability * 100).toFixed(1)}%
+      </Text>
+
+      {/* Pest */}
+      <Text style={styles.summaryText}>
+        🐛 Pest Risk: <Text style={styles.bold}>{pest.risk_level}</Text>
+      </Text>
+      <Text style={styles.subText}>
+        Confidence: {(pest.confidence * 100).toFixed(1)}%
+      </Text>
+
+      {/* Yield */}
+      {yieldData && (
+        <>
+          <Text style={styles.summaryText}>
+            🌾 Estimated Yield:{' '}
+            <Text style={styles.bold}>
+              {yieldData.estimated_yield_kg_ha.toFixed(0)} kg/ha
+            </Text>
+          </Text>
+          <Text style={styles.subText}>
+            Category: {yieldData.category?.label}
+          </Text>
+        </>
+      )}
+
+      {/* Toggle */}
+      <TouchableOpacity
+        style={styles.toggleButton}
+        onPress={() => setShowDetails(!showDetails)}
+      >
+        <Text style={styles.toggleText}>
+          {showDetails ? 'Hide details ▲' : 'Show details ▼'}
+        </Text>
+      </TouchableOpacity>
+
+      {/* Details */}
+      {showDetails && (
+        <View style={styles.detailsBox}>
+          <Text style={styles.detailText}>
+            🌱 Stage Insight: Crop is currently in a critical growth phase.
+          </Text>
+          <Text style={styles.detailText}>
+            🦠 Disease Insight: {getDiseaseExplanation(disease.risk_level)}
+          </Text>
+          <Text style={styles.detailText}>
+            🐛 Pest Insight: {getPestExplanation(pest.risk_level)}
+          </Text>
+          {yieldData && (
+            <Text style={styles.detailText}>
+              🌾 Yield Insight:{' '}
+              {getYieldExplanation(yieldData.category?.name)}
+            </Text>
+          )}
+        </View>
+      )}
+    </View>
+  );
+};
+
+type WaterStressLevel =
+  | 'Optimal'
+  | 'Mild Stress'
+  | 'Moderate Stress'
+  | 'Severe Stress';
+
+
+const WaterStressCard = ({ waterStress }: { waterStress: any }) => {
+  if (!waterStress || !waterStress.current_status) return null;
+
+const WATER_STRESS_COLORS: Record<WaterStressLevel, string> = {
+  Optimal: '#4CAF50',
+  'Mild Stress': '#FFC107',
+  'Moderate Stress': '#FF9800',
+  'Severe Stress': '#F44336'
+};
+
+const level = waterStress.current_status.moisture_status as WaterStressLevel;
+const statusColor = WATER_STRESS_COLORS[level] ?? '#666';
+
+
+  return (
+    <View style={styles.resultCard}>
+      <Text style={styles.sectionTitle}>💧 Water Stress Analysis</Text>
+
+      <View style={styles.waterStressContainer}>
+        <Text style={styles.waterStressScore}>Stress Score: {waterStress.current_status.water_stress.toFixed(1)}/100</Text>
+        <Text style={[styles.waterStressStatus, { color: statusColor }]}>
+          Status: {waterStress.current_status.moisture_status}
+        </Text>
+        <Text style={styles.irrigationAdvice}>
+          {waterStress.current_status.irrigation_advice}
+        </Text>
+      </View>
+
+      {/* Stress Drivers */}
+      {waterStress.current_status.stress_drivers && waterStress.current_status.stress_drivers.length > 0 && (
+        <View style={styles.stressDriversContainer}>
+          <Text style={styles.driversTitle}>🔍 Stress Drivers:</Text>
+          {waterStress.current_status.stress_drivers.map((driver: any, index: number) => (
+            <View key={index} style={styles.driverItem}>
+              <Text style={styles.driverFactor}>• {driver.factor}</Text>
+              <Text style={styles.driverDescription}>{driver.description}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+};
+
+// Add this component after your SummarySection component
+const ConfidenceMeterCard = ({ stage, disease, pest }: { stage: any; disease: any; pest: any }) => (
+  <View style={styles.confidenceCard}>
+    <Text style={styles.sectionTitle}>📊 Confidence Levels</Text>
+
+    <View style={styles.confidenceRow}>
+      <Text style={styles.confidenceLabel}>Stage</Text>
+      <View style={styles.confidenceBarContainer}>
+        <View
+          style={[
+            styles.confidenceBar,
+            {
+              width: `${stage.confidence * 100}%`,
+              backgroundColor: '#4CAF50'
+            }
+          ]}
+        />
+        <Text style={styles.confidenceValue}>{(stage.confidence * 100).toFixed(1)}%</Text>
+      </View>
+    </View>
+
+    <View style={styles.confidenceRow}>
+      <Text style={styles.confidenceLabel}>Disease</Text>
+      <View style={styles.confidenceBarContainer}>
+        <View
+          style={[
+            styles.confidenceBar,
+            {
+              width: `${disease.probability * 100}%`,
+              backgroundColor: disease.risk_level === 'LOW' ? '#4CAF50' : disease.risk_level === 'MEDIUM' ? '#FF9800' : '#F44336'
+            }
+          ]}
+        />
+        <Text style={styles.confidenceValue}>{(disease.probability * 100).toFixed(1)}%</Text>
+      </View>
+    </View>
+
+    <View style={styles.confidenceRow}>
+      <Text style={styles.confidenceLabel}>Pest</Text>
+      <View style={styles.confidenceBarContainer}>
+        <View
+          style={[
+            styles.confidenceBar,
+            {
+              width: `${pest.confidence * 100}%`,
+              backgroundColor: pest.risk_level === 'Low' ? '#4CAF50' : pest.risk_level === 'Medium' ? '#FF9800' : '#F44336'
+            }
+          ]}
+        />
+        <Text style={styles.confidenceValue}>{(pest.confidence * 100).toFixed(1)}%</Text>
+      </View>
+    </View>
+  </View>
+);
+
+/* =========================
+   Main Screen
+========================= */
+export default function ResultsScreen({ route, navigation }: any) {
+  const { farmerId, cropType, modelResults } = route.params;
+
   const [results, setResults] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -30,33 +238,25 @@ export default function ResultsScreen({ route, navigation }: ResultsScreenProps)
     } else {
       fetchResults();
     }
-  }, [farmerId, cropType]);
+  }, []);
 
   const fetchResults = async () => {
-    setLoading(true);
     try {
-      const API_URL = Platform.OS === 'android'
-        ? 'http://192.168.31.20:3001'
-        : 'http://localhost:3001';
+      const API_URL =
+        Platform.OS === 'android'
+          ? 'http://192.168.31.20:3001'
+          : 'http://localhost:3001';
 
       const response = await fetch(`${API_URL}/api/run-model`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          farmerId,
-          cropType
-        }),
+        body: JSON.stringify({ farmerId, cropType })
       });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${await response.text()}`);
-      }
 
       const data = await response.json();
       setResults(data);
-    } catch (error: any) {
-      console.error('Fetch error:', error);
-      setError(error.message || 'Failed to load analysis');
+    } catch (err: any) {
+      setError(err.message || 'Failed to load results');
     } finally {
       setLoading(false);
     }
@@ -64,87 +264,22 @@ export default function ResultsScreen({ route, navigation }: ResultsScreenProps)
 
   if (loading) {
     return (
-      <View style={styles.container}>
+      <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#2E8B57" />
-        <Text style={styles.loadingText}>Analyzing crop data...</Text>
+        <Text style={styles.loadingText}>Analyzing crop data…</Text>
       </View>
     );
   }
 
-  if (error) {
+  if (error || !results?.success) {
     return (
       <View style={styles.container}>
-        <Text style={styles.errorText}>Error: {error}</Text>
+        <Text style={styles.errorText}>
+          {error || 'No results available'}
+        </Text>
       </View>
     );
   }
-
-  if (!results || !results.success) {
-    return (
-      <View style={styles.container}>
-        <Text style={styles.errorText}>No results available</Text>
-      </View>
-    );
-  }
-
-  const { stage, disease, pest, growthPerformance, ndviTrend, recommendations, healthMetrics, ndvi_stats, window_df } = results;
-
-  // Calculate plot area (simple approximation)
-  const calculatePlotArea = () => {
-    if (plotCoordinates && plotCoordinates.length >= 3) {
-      // Simple area calculation using coordinates
-      let area = 0;
-      for (let i = 0; i < plotCoordinates.length - 1; i++) {
-        const p1 = plotCoordinates[i];
-        const p2 = plotCoordinates[i + 1];
-        area += (p1.longitude * p2.latitude - p2.longitude * p1.latitude);
-      }
-      area = Math.abs(area) / 2;
-      // Convert to acres (approximate)
-      return (area * 247.105).toFixed(2);
-    }
-    return 'N/A';
-  };
-
-  // Get all vegetation indices from the window_df data
-  const getVegetationIndices = () => {
-    if (window_df && window_df.length > 0) {
-      // Get the most recent data point (last row)
-      const latestData = window_df[window_df.length - 1];
-      return {
-        NDVI: latestData.NDVI?.toFixed(3) || 'N/A',
-        GNDVI: latestData.GNDVI?.toFixed(3) || 'N/A',
-        SAVI: latestData.SAVI?.toFixed(3) || 'N/A',
-        NDMI: latestData.NDMI?.toFixed(3) || 'N/A',
-        MSI: latestData.MSI?.toFixed(3) || 'N/A',
-        NDWI: latestData.NDWI?.toFixed(3) || 'N/A',
-        NMDI: latestData.NMDI?.toFixed(3) || 'N/A',
-        NDRE: latestData.NDRE?.toFixed(3) || 'N/A',
-        CIredEdge: latestData.CIredEdge?.toFixed(3) || 'N/A',
-        CIgreen: latestData.CIgreen?.toFixed(3) || 'N/A',
-        PSRI: latestData.PSRI?.toFixed(3) || 'N/A',
-        SIPI: latestData.SIPI?.toFixed(3) || 'N/A'
-      };
-    }
-    return {};
-  };
-
-  const vegetationIndices = getVegetationIndices();
-
-  // Get all stage probabilities if available
-  const getAllStageProbabilities = () => {
-    if (results.stage && results.stage.all_probabilities) {
-      return results.stage.all_probabilities;
-    }
-    // If not available, return the single result with 100% for that stage
-    return {
-      [results.stage.prediction]: results.stage.confidence,
-      'Other Stage 1': 0.0,
-      'Other Stage 2': 0.0
-    };
-  };
-
-  const stageProbabilities = getAllStageProbabilities();
 
   return (
     <ScrollView style={styles.container}>
@@ -154,211 +289,48 @@ export default function ResultsScreen({ route, navigation }: ResultsScreenProps)
         <Text style={styles.subtitle}>{cropType.toUpperCase()}</Text>
       </View>
 
-      {/* Growth Performance Card */}
-      {growthPerformance && (
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>🌱 Growth Performance</Text>
-          <View style={styles.growthContainer}>
-            <Text style={styles.growthScore}>Overall Score: {growthPerformance.report.overall_score.toFixed(1)}</Text>
-            <Text style={styles.growthStatus}>Status: {growthPerformance.report.status}</Text>
-            <Text style={styles.growthRecommendation}>Recommendation: {growthPerformance.report.recommendation}</Text>
-          </View>
-          
-          <View style={styles.growthMetricsContainer}>
-            <GrowthMetricCard 
-              name="Growth Rate" 
-              score={growthPerformance.scores.growth_rate} 
-              status={growthPerformance.healthMetrics.growth_rate.status} 
-            />
-            <GrowthMetricCard 
-              name="Biomass" 
-              score={growthPerformance.scores.biomass} 
-              status={growthPerformance.healthMetrics.biomass.status} 
-            />
-            <GrowthMetricCard 
-              name="Stability" 
-              score={growthPerformance.scores.stability} 
-              status={growthPerformance.healthMetrics.stability.status} 
-            />
-          </View>
-        </View>
+      {/* Summary Section */}
+      <SummarySection results={results} />
+
+      {results && results.stage && results.disease && results.pest && (
+        <ConfidenceMeterCard
+          stage={results.stage}
+          disease={results.disease}
+          pest={results.pest}
+        />
       )}
 
-      {/* Stage Prediction Card - Show all probabilities */}
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Growth Stage Prediction</Text>
-        <View style={styles.stageContainer}>
-          {Object.entries(stageProbabilities).map(([stageName, probability]: [string, any]) => (
-            <View key={stageName} style={styles.stageItem}>
-              <Text style={styles.stageName}>{stageName}</Text>
-              <Text style={styles.stageConfidence}>{(probability * 100).toFixed(1)}%</Text>
-            </View>
-          ))}
-        </View>
-      </View>
 
-      {/* Vegetation Indices Section */}
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>🌿 Vegetation Indices</Text>
-        <View style={styles.indicesContainer}>
-          <View style={styles.indexRow}>
-            <IndexCard label="NDVI" value={vegetationIndices.NDVI} />
-            <IndexCard label="GNDVI" value={vegetationIndices.GNDVI} />
-            <IndexCard label="SAVI" value={vegetationIndices.SAVI} />
-          </View>
-          <View style={styles.indexRow}>
-            <IndexCard label="NDMI" value={vegetationIndices.NDMI} />
-            <IndexCard label="MSI" value={vegetationIndices.MSI} />
-            <IndexCard label="NDWI" value={vegetationIndices.NDWI} />
-          </View>
-          <View style={styles.indexRow}>
-            <IndexCard label="NMDI" value={vegetationIndices.NMDI} />
-            <IndexCard label="NDRE" value={vegetationIndices.NDRE} />
-            <IndexCard label="CIredEdge" value={vegetationIndices.CIredEdge} />
-          </View>
-          <View style={styles.indexRow}>
-            <IndexCard label="CIgreen" value={vegetationIndices.CIgreen} />
-            <IndexCard label="PSRI" value={vegetationIndices.PSRI} />
-            <IndexCard label="SIPI" value={vegetationIndices.SIPI} />
-          </View>
-        </View>
-      </View>
+      {/* Add this to your main component after the confidence meter*/}
+      {results && results.waterStress && (
+        <WaterStressCard waterStress={results.waterStress} />
+      )}
 
-      {/* Disease Detection Card */}
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Disease Detection</Text>
-        <View style={styles.diseaseContainer}>
-          <Text style={[
-            styles.diseaseText,
-            { color: disease.risk_level === 'LOW' ? '#4CAF50' : 
-                     disease.risk_level === 'MEDIUM' ? '#FF9800' : '#F44336' }
-          ]}>
-            {disease.risk_level} Risk
-          </Text>
-          <Text style={styles.diseaseProbText}>{(disease.probability * 100).toFixed(1)}% probability</Text>
-        </View>
-      </View>
+      {/* Navigation Cards */}
+      <ResultNavCard
+        title="🌱 Stage Analysis"
+        subtitle={`Stage: ${results.stage.prediction}`}
+        onPress={() =>
+          navigation.navigate('StageResult', { results, cropType })
+        }
+      />
 
-      {/* Pest Risk Card */}
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Pest Risk Assessment</Text>
-        <View style={styles.pestContainer}>
-          <Text style={[
-            styles.pestText,
-            { color: pest.risk_level === 'Low' ? '#4CAF50' : 
-                     pest.risk_level === 'Medium' ? '#FF9800' : '#F44336' }
-          ]}>
-            {pest.risk_level} Risk
-          </Text>
-          <Text style={styles.pestConfidenceText}>{(pest.confidence * 100).toFixed(1)}% confidence</Text>
-        </View>
-      </View>
+      <ResultNavCard
+        title="🦠 Disease Analysis"
+        subtitle={`Risk: ${results.disease.risk_level}`}
+        onPress={() =>
+          navigation.navigate('DiseaseResult', { results, cropType })
+        }
+      />
 
-      {/* Confidence Meters */}
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Confidence Levels</Text>
-        <View style={styles.confidenceContainer}>
-          <ConfidenceMeter 
-            label="Stage" 
-            value={stage.confidence} 
-            color="#4CAF50" 
-          />
-          <ConfidenceMeter 
-            label="Disease" 
-            value={disease.probability} 
-            color={disease.risk_level === 'LOW' ? '#4CAF50' : 
-                   disease.risk_level === 'MEDIUM' ? '#FF9800' : '#F44336'} 
-          />
-          <ConfidenceMeter 
-            label="Pest" 
-            value={pest.confidence} 
-            color={pest.risk_level === 'Low' ? '#4CAF50' : 
-                   pest.risk_level === 'Medium' ? '#FF9800' : '#F44336'} 
-          />
-        </View>
-      </View>
+      <ResultNavCard
+        title="🐛 Pest Analysis"
+        subtitle={`Risk: ${results.pest.risk_level}`}
+        onPress={() =>
+          navigation.navigate('PestResult', { results, cropType })
+        }
+      />
 
-      {/* NDVI Trend Chart */}
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>NDVI Trend Over Time</Text>
-        <View style={styles.chartContainer}>
-          {ndviTrend && ndviTrend.length > 0 && (
-            <View style={styles.trendChart}>
-              {ndviTrend.map((point: any, index: number) => (
-                <View key={index} style={styles.trendPoint}>
-                  <Text style={styles.trendDate}>{new Date(point.date).toLocaleDateString()}</Text>
-                  <View style={[styles.trendBar, { height: point.ndvi * 100 }]} />
-                  <Text style={styles.trendValue}>{point.ndvi.toFixed(2)}</Text>
-                </View>
-              ))}
-            </View>
-          )}
-        </View>
-      </View>
-
-      {/* NDVI Statistics */}
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>NDVI Statistics</Text>
-        <View style={styles.statsContainer}>
-          <StatItem label="Mean" value={ndvi_stats.mean.toFixed(3)} />
-          <StatItem label="Min" value={ndvi_stats.min.toFixed(3)} />
-          <StatItem label="Max" value={ndvi_stats.max.toFixed(3)} />
-          <StatItem label="Trend" value={ndvi_stats.trend.toFixed(3)} />
-        </View>
-      </View>
-
-      {/* Health Metrics */}
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Soil Health Metrics</Text>
-        <View style={styles.healthMetricsContainer}>
-          {healthMetrics && Object.entries(healthMetrics).map(([key, value]: [string, any]) => (
-            <HealthMetricCard 
-              key={key} 
-              name={key.charAt(0).toUpperCase() + key.slice(1)} 
-              level={value.level} 
-              status={value.status} 
-            />
-          ))}
-        </View>
-      </View>
-
-      {/* Stage Recommendations */}
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>🌱 Stage Recommendations</Text>
-        <View style={styles.recommendationsContainer}>
-          {recommendations.stage && recommendations.stage.map((rec: string, index: number) => (
-            <View key={`stage-${index}`} style={styles.recommendationItem}>
-              <Text style={styles.recommendationText}>• {rec}</Text>
-            </View>
-          ))}
-        </View>
-      </View>
-
-      {/* Disease Recommendations */}
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>🦠 Disease Recommendations</Text>
-        <View style={styles.recommendationsContainer}>
-          {recommendations.disease && recommendations.disease.map((rec: string, index: number) => (
-            <View key={`disease-${index}`} style={styles.recommendationItem}>
-              <Text style={styles.recommendationText}>• {rec}</Text>
-            </View>
-          ))}
-        </View>
-      </View>
-
-      {/* Pest Recommendations */}
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>🐛 Pest Recommendations</Text>
-        <View style={styles.recommendationsContainer}>
-          {recommendations.pest && recommendations.pest.map((rec: string, index: number) => (
-            <View key={`pest-${index}`} style={styles.recommendationItem}>
-              <Text style={styles.recommendationText}>• {rec}</Text>
-            </View>
-          ))}
-        </View>
-      </View>
-
-      {/* Back Button */}
       <TouchableOpacity
         style={styles.backButton}
         onPress={() => navigation.goBack()}
@@ -369,282 +341,166 @@ export default function ResultsScreen({ route, navigation }: ResultsScreenProps)
   );
 }
 
-// Index Card Component
-const IndexCard = ({ label, value }: { label: string, value: string }) => (
-  <View style={styles.indexCard}>
-    <Text style={styles.indexLabel}>{label}</Text>
-    <Text style={styles.indexValue}>{value}</Text>
-  </View>
-);
-
-// Confidence Meter Component
-const ConfidenceMeter = ({ label, value, color }: { label: string, value: number, color: string }) => (
-  <View style={styles.confidenceItem}>
-    <Text style={styles.confidenceLabel}>{label}</Text>
-    <View style={styles.confidenceMeter}>
-      <View style={[styles.confidenceFill, { width: `${value * 100}%`, backgroundColor: color }]} />
-      <Text style={styles.confidenceeText}>{(value * 100).toFixed(1)}%</Text>
+/* =========================
+   Navigation Card
+========================= */
+const ResultNavCard = ({
+  title,
+  subtitle,
+  onPress
+}: {
+  title: string;
+  subtitle: string;
+  onPress: () => void;
+}) => (
+  <TouchableOpacity style={styles.resultCard} onPress={onPress}>
+    <View style={styles.cardHeader}>
+      <Text style={styles.cardTitle}>{title}</Text>
+      <Text style={styles.arrow}>→</Text>
     </View>
-  </View>
+    <Text style={styles.cardText}>{subtitle}</Text>
+  </TouchableOpacity>
 );
 
-// Health Metric Card Component
-const HealthMetricCard = ({ name, level, status }: { name: string, level: string, status: string }) => {
-  const getStatusColor = () => {
-    if (status.toLowerCase().includes('good') || status.toLowerCase().includes('adequate')) return '#4CAF50';
-    if (status.toLowerCase().includes('low') || status.toLowerCase().includes('needs')) return '#FF9800';
-    if (status.toLowerCase().includes('high') || status.toLowerCase().includes('excess')) return '#F44336';
-    return '#666';
-  };
-
-  return (
-    <View style={styles.healthMetricCard}>
-      <Text style={styles.healthMetricName}>{name}</Text>
-      <Text style={styles.healthMetricValue}>{level}</Text>
-      <Text style={[styles.healthMetricStatus, { color: getStatusColor() }]}>
-        {status}
-      </Text>
-    </View>
-  );
-};
-
-// Growth Metric Card Component
-const GrowthMetricCard = ({ name, score, status }: { name: string, score: number, status: string }) => {
-  const getStatusColor = () => {
-    if (score >= 80) return '#4CAF50'; // Green
-    if (score >= 60) return '#8BC34A'; // Light Green
-    if (score >= 40) return '#FFC107'; // Amber
-    return '#F44336'; // Red
-  };
-
-  return (
-    <View style={styles.growthMetricCard}>
-      <Text style={styles.growthMetricName}>{name}</Text>
-      <Text style={styles.growthMetricValue}>{score.toFixed(1)}</Text>
-      <Text style={[styles.growthMetricStatus, { color: getStatusColor() }]}>
-        {status}
-      </Text>
-    </View>
-  );
-};
-
-// Stage Item Component
-const StageItem = ({ stageName, probability }: { stageName: string, probability: number }) => (
-  <View style={styles.stageItem}>
-    <Text style={styles.stageName}>{stageName}</Text>
-    <Text style={styles.stageConfidence}>{(probability * 100).toFixed(1)}%</Text>
-  </View>
-);
-
-// Stat Item Component
-const StatItem = ({ label, value }: { label: string, value: string }) => (
-  <View style={styles.statItem}>
-    <Text style={styles.statLabel}>{label}</Text>
-    <Text style={styles.statValue}>{value}</Text>
-  </View>
-);
-
-const { width } = Dimensions.get('window');
-
+/* =========================
+   Styles
+========================= */
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8F9FA',
-    padding: 16
+  container: { flex: 1, backgroundColor: '#F8F9FA', padding: 16 },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { marginTop: 20, fontSize: 18, color: '#2E8B57' },
+  errorText: { fontSize: 16, color: '#F44336', textAlign: 'center' },
+
+  header: { alignItems: 'center', marginBottom: 20 },
+  title: { fontSize: 24, fontWeight: 'bold', color: '#2E8B57' },
+  subtitle: { fontSize: 16, color: '#666' },
+
+  resultCard: {
+    backgroundColor: '#FFF',
+    padding: 20,
+    borderRadius: 12,
+    marginBottom: 16,
+    elevation: 3
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#F5F5F5'
+  waterStressContainer: {
+    paddingVertical: 10
   },
-  loadingText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#2E8B57',
-    marginTop: 20,
-    textAlign: 'center'
-  },
-  errorText: {
+  waterStressScore: {
     fontSize: 16,
-    color: '#f44336',
-    textAlign: 'center',
-    marginTop: 50
-  },
-  header: {
-    alignItems: 'center',
-    marginBottom: 20
-  },
-  title: {
-    fontSize: 26,
     fontWeight: 'bold',
     color: '#2E8B57',
     marginBottom: 5
   },
-  subtitle: {
-    fontSize: 18,
-    color: '#666'
+  waterStressStatus: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 5
   },
-  card: {
-    backgroundColor: 'white',
-    padding: 20,
-    marginBottom: 16,
-    borderRadius: 12,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4
+  irrigationAdvice: {
+    fontSize: 14,
+    color: '#666',
+    fontStyle: 'italic',
+    marginBottom: 10
+  },
+  stressDriversContainer: {
+    marginTop: 10
+  },
+  driversTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 5
+  },
+  driverItem: {
+    marginBottom: 5
+  },
+  driverFactor: {
+    fontWeight: 'bold',
+    color: '#333'
+  },
+  driverDescription: {
+    fontSize: 12,
+    color: '#666',
+    marginLeft: 10
   },
   sectionTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    marginBottom: 15,
-    color: '#333',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 10
+  },
+  summaryText: { fontSize: 15, marginBottom: 4 },
+  subText: { fontSize: 13, color: '#666', marginBottom: 6 },
+  bold: { fontWeight: 'bold' },
+
+  toggleButton: { marginTop: 10 },
+  toggleText: {
+    color: '#2196F3',
+    fontWeight: 'bold',
     textAlign: 'center'
   },
-  stageContainer: {
-    paddingVertical: 10
+  detailsBox: {
+    marginTop: 12,
+    backgroundColor: '#F1F8E9',
+    padding: 10,
+    borderRadius: 8
   },
-  stageItem: {
+  detailText: { fontSize: 13, marginBottom: 6 },
+
+  cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    marginBottom: 6
+  },
+  cardTitle: { fontSize: 18, fontWeight: 'bold' },
+  arrow: { fontSize: 18, color: '#2E8B57' },
+  cardText: { fontSize: 14, color: '#666' },
+
+  backButton: {
+    backgroundColor: '#2196F3',
+    padding: 15,
+    borderRadius: 8,
     alignItems: 'center',
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee'
+    marginVertical: 20
   },
-  stageName: {
+  backButtonText: {
+    color: '#FFF',
     fontSize: 16,
-    color: '#333',
-    fontWeight: '500'
-  },
-  stageConfidence: {
-    fontSize: 16,
-    color: '#2E8B57',
     fontWeight: 'bold'
   },
-  growthContainer: {
-    paddingVertical: 10
+
+  // Confidence Meter Styles
+  confidenceCard: {
+    backgroundColor: '#FFF',
+    padding: 20,
+    borderRadius: 12,
+    marginBottom: 16,
+    elevation: 3
   },
-  growthScore: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#2E8B57',
-    marginBottom: 5
-  },
-  growthStatus: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 5
-  },
-  growthRecommendation: {
-    justifyContent: 'center',
-    fontSize: 14,
-    color: '#666',
-    fontStyle: 'italic'
-  },
-  growthMetricsContainer: {
+  confidenceRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between'
-  },
-  growthMetricCard: {
-    width: (width - 88) / 2, // Three cards per row
-    backgroundColor: '#F8F9FA',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 10,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E0E0E0'
-  },
-  growthMetricName: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 3
-  },
-  growthMetricValue: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#2E8B57',
-    marginBottom: 2
-  },
-  growthMetricStatus: {
-    fontSize: 10,
-    textAlign: 'center'
-  },
-  predictionContainer: {
-    alignItems: 'center',
-    padding: 20,
-    backgroundColor: '#E8F5E8',
-    borderRadius: 10
-  },
-  stageText: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#2E8B57',
-    marginBottom: 5
-  },
-  confidenceeText: {
-    fontSize: 16,
-    color: '#666'
-  },
-  diseaseContainer: {
-    alignItems: 'center',
-    padding: 20,
-    backgroundColor: '#FFF3CD',
-    borderRadius: 10
-  },
-  diseaseText: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 5
-  },
-  diseaseProbText: {
-    fontSize: 16,
-    color: '#666'
-  },
-  pestContainer: {
-    alignItems: 'center',
-    padding: 20,
-    backgroundColor: '#FCE4EC',
-    borderRadius: 10
-  },
-  pestText: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 5
-  },
-  pestConfidenceText: {
-    fontSize: 16,
-    color: '#666'
-  },
-  confidenceContainer: {
-    paddingVertical: 10
-  },
-  confidenceItem: {
-    marginBottom: 15
+    marginBottom: 12
   },
   confidenceLabel: {
     fontSize: 14,
-    fontWeight: '600',
     color: '#333',
-    marginBottom: 5
+    width: 80
   },
-  confidenceMeter: {
+  confidenceBarContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
     height: 20,
     backgroundColor: '#E0E0E0',
     borderRadius: 10,
     overflow: 'hidden',
-    position: 'relative'
+    marginLeft: 10
   },
-  confidenceFill: {
+  confidenceBar: {
     height: '100%',
     borderRadius: 10
   },
-  confidenceText: {
+  confidenceValue: {
     position: 'absolute',
     right: 10,
     top: 0,
@@ -653,143 +509,5 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
     color: 'white'
-  },
-  chartContainer: {
-    padding: 0
-  },
-  trendChart: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'flex-end',
-    height: 120,
-    backgroundColor: '#F0F0F0',
-    borderRadius: 8,
-    padding: 8
-  },
-  trendPoint: {
-    alignItems: 'center',
-    width: 25
-  },
-  trendDate: {
-    fontSize: 8,
-    textAlign: 'center',
-    marginBottom: 4
-  },
-  trendBar: {
-    backgroundColor: '#2196F3',
-    width: 15,
-    borderRadius: 4,
-    marginBottom: 4
-  },
-  trendValue: {
-    fontSize: 10,
-    textAlign: 'center'
-  },
-  statsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between'
-  },
-  statItem: {
-    width: (width - 88) / 2,
-    padding: 10,
-    marginBottom: 10,
-    backgroundColor: '#F8F9FA',
-    borderRadius: 8,
-    alignItems: 'center'
-  },
-  statLabel: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 5
-  },
-  statValue: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#2E8B57'
-  },
-  healthMetricsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between'
-  },
-  healthMetricCard: {
-    width: (width - 88) / 2,
-    backgroundColor: '#F8F9FA',
-    padding: 15,
-    borderRadius: 8,
-    marginBottom: 10,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E0E0E0'
-  },
-  healthMetricName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 5
-  },
-  healthMetricValue: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#2E8B57',
-    marginBottom: 3
-  },
-  healthMetricStatus: {
-    fontSize: 12,
-    textAlign: 'center'
-  },
-  recommendationsContainer: {
-    paddingVertical: 10
-  },
-  recommendationItem: {
-    backgroundColor: '#E8F5E8',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 8
-  },
-  recommendationText: {
-    fontSize: 14,
-    lineHeight: 20
-  },
-  backButton: {
-    backgroundColor: '#2196F3',
-    padding: 15,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 20,
-    marginBottom: 20
-  },
-  backButtonText: {
-    color: 'white',
-    fontWeight: 'bold',
-    fontSize: 16
-  },
-  indicesContainer: {
-    padding: 10
-  },
-  indexRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 10
-  },
-  indexCard: {
-    width: (width - 60) / 3,
-    backgroundColor: '#F8F9FA',
-    padding: 10,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  indexLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 5
-  },
-  indexValue: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#2E8B57'
   }
 });

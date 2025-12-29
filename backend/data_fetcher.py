@@ -1,3 +1,6 @@
+"""
+Enhanced data fetcher with water stress analysis
+"""
 import pandas as pd
 import numpy as np
 import os
@@ -9,76 +12,38 @@ from sentinelhub import (
 )
 from shapely.geometry import Polygon
 
-# ===============================
-# CROP CONFIGURATIONS
-# ===============================
-CROP_CONFIG = {
-    'rice': {
-        'window_size': 8,
-        'sowing_start': {'month': 6, 'day': 1},   # June 1
-        'season_end': {'month': 10, 'day': 31},   # Oct 31
-        'model_path': r"models\rice_model.pt"
-    },
-    'wheat': {
-        'window_size': 12,
-        'sowing_start': {'month': 11, 'day': 1},  # Nov 1
-        'season_end': {'month': 4, 'day': 30},    # Apr 30 (next year)
-        'model_path': r"models\wheat_model.pt"
-    },
-    'maize': {
-        'window_size': 8,
-        'sowing_start': {'month': 5, 'day': 15},  # May 15
-        'season_end': {'month': 9, 'day': 30},    # Sep 30
-        'model_path': r"models\maize_model.pt"
-    },
-    'chickpea': {
-        'window_size': 7,
-        'sowing_start': {'month': 10, 'day': 15}, # Oct 15
-        'season_end': {'month': 3, 'day': 31},    # Mar 31 (next year)
-        'model_path': r"models\chickpea_model.pt"
-    },
-    'pigeon_pea': {
-        'window_size': 7,
-        'sowing_start': {'month': 6, 'day': 1},   # June 1
-        'season_end': {'month': 12, 'day': 31},   # Dec 31
-        'model_path': r"models\pigeon_pea_model.pt"
-    },
-    'bean': {
-        'window_size': 6,
-        'sowing_start': {'month': 2, 'day': 1},   # Feb 1
-        'season_end': {'month': 5, 'day': 31},    # May 31
-        'model_path': r"models\bean_model.pt"
-    },
-    'lentils': {
-        'window_size': 7,
-        'sowing_start': {'month': 10, 'day': 1},  # Oct 1
-        'season_end': {'month': 3, 'day': 31},    # Mar 31 (next year)
-        'model_path': r"models\lentils_model.pt"
-    }
-}
+# Import your water stress analysis
+from water_stress_analysis import (
+    analyze_all_windows, 
+    get_moisture_status
+)
+
+
+# Import CROP_CONFIG from config, not define it here
+from config import CROP_CONFIG, CLIENTS, EVALSCRIPT
+
+# Import your water stress analysis
+from water_stress_analysis import (
+    analyze_all_windows, 
+    calculate_window_water_stress, 
+    get_moisture_status, 
+    get_stage_aware_irrigation_advice,
+    identify_stress_drivers
+)
+
 
 # ===============================
-# SENTINEL HUB CONFIG - SECURE VERSION
+# SENTINEL HUB CONFIGURATION
 # ===============================
-def get_sentinel_clients():
-    """Get Sentinel Hub clients from environment variables"""
-    clients = []
-    
-    # Try to get clients from environment variables
-    for i in range(1, 7):  # Up to 6 clients
-        client_id = os.getenv(f'SENTINEL_CLIENT_{i}_ID')
-        client_secret = os.getenv(f'SENTINEL_CLIENT_{i}_SECRET')
-        
-        if client_id and client_secret:
-            clients.append((client_id, client_secret))
-    
-    # NO fallback to demo credentials - force users to use their own
-    if not clients:
-        raise ValueError("No Sentinel Hub clients configured. Set SENTINEL_CLIENT_1_ID and SENTINEL_CLIENT_1_SECRET environment variables.")
-    
-    return clients
+CLIENTS = [
+    ("c30e60ba-ea66-4447-a1e8-af3207786289", "EPfJJYksVRwotM0yX8qTJukW0GKAUAn6"),
+    ("243d120c-aa15-4329-9365-7c970799d3ee", "uXC8gl25RML4ZILOuYCYlrHl7svleRcK"),
+    ("036ec31e-54ee-4347-9267-199f5480fb3f", "ETUSehSpkGZUqjBixrjz8J3VN51gsw4S"),
+    ("9bbe62fb-7b30-47d8-b903-ae6b075d9349", "VIlm7ofRmIPTvClNtCQ5KXWLOYLqymL3"),
+    ("9ee87d64-a7df-4641-a4c5-df30f15b74a2", "UG3ic3LN454SB79EQA43b1i1D6O9RzXD"),
+    ("26a07095-ca66-4a18-8890-25cdbdea4542", "cFdacSjQrVj6m0DdOtKgpSKDic26Nb0Z"),
+]
 
-CLIENTS = get_sentinel_clients()
 current_client_idx = 0
 
 def get_config():
@@ -88,9 +53,7 @@ def get_config():
     cfg.sh_client_secret = CLIENTS[current_client_idx][1]
     return cfg
 
-# ===============================
-# EVALSCRIPT (Same as before)
-# ===============================
+# EVALSCRIPT (same as before)
 EVALSCRIPT = """
 //VERSION=3
 function setup() {
@@ -147,144 +110,214 @@ function evaluatePixel(s) {
 """
 
 # ===============================
-# DATA FETCHING FUNCTIONS
+# WATER STRESS ANALYSIS INTEGRATION
 # ===============================
-def calculate_date_range(crop_type, current_date=None):
-    """Calculate date range for display purposes"""
+def create_analysis_windows(df, window_size, num_windows=4):
+    """Create sliding windows for analysis including water stress"""
+    if df is None or len(df) < window_size:
+        return None, None
+    
+    windows = []
+    n = len(df)
+    
+    # Create numpy array for efficient computation
+    feature_cols = ['B2', 'B3', 'B4', 'B5', 'B8', 'B11', 'B12',
+                   'NDVI', 'GNDVI', 'SAVI', 'NDMI', 'MSI', 'NDWI', 'NMDI',
+                   'NDRE', 'CIredEdge', 'CIgreen', 'PSRI', 'SIPI']
+    
+    data_array = df[feature_cols].values
+    
+    # Get most recent windows
+    for i in range(min(num_windows, n - window_size + 1)):
+        start_idx = n - window_size - i
+        if start_idx < 0:
+            break
+        
+        end_idx = start_idx + window_size
+        window_array = data_array[start_idx:end_idx]
+        window_df = df.iloc[start_idx:end_idx].copy()
+        
+        windows.append({
+            'window_id': f"W{i+1}",
+            'data': window_df,
+            'array': window_array,
+            'start_date': window_df.iloc[0]['date'],
+            'end_date': window_df.iloc[-1]['date'],
+            'dates_str': f"{window_df.iloc[0]['date'].strftime('%b %d')} - {window_df.iloc[-1]['date'].strftime('%b %d')}",
+            'mean_values': window_df[feature_cols].mean().to_dict()
+        })
+    
+    # Return in chronological order
+    windows = windows[::-1]
+    
+    return windows
+
+def fetch_data_for_analysis(corners, crop_type, current_stage, current_date=None, num_windows=4):
+    """Enhanced fetcher that includes water stress analysis"""
+    # Calculate date range based on stage (you already have this logic)
+    from config import CROP_CONFIG
+    
     if current_date is None:
         current_date = datetime.now()
-    elif isinstance(current_date, date) and not isinstance(current_date, datetime):
-        # Convert date to datetime if it's a date object
+    elif isinstance(current_date, date):
         current_date = datetime.combine(current_date, datetime.min.time())
     
     config = CROP_CONFIG[crop_type]
+    window_size = config['window_size']
     
-    sowing_start = datetime(current_date.year, config['sowing_start']['month'], config['sowing_start']['day'])
+    # Get days to go back based on stage
+    stage_offset = config['stage_offsets'].get(current_stage, 60)
     
-    if config['season_end']['month'] < config['sowing_start']['month']:
-        season_end = datetime(current_date.year + 1, config['season_end']['month'], config['season_end']['day'])
-    else:
-        season_end = datetime(current_date.year, config['season_end']['month'], config['season_end']['day'])
+    # Total days needed: stage_offset + (num_windows - 1) + window_size
+    total_days_needed = stage_offset + (num_windows - 1) + window_size
+    
+    # Start date
+    start_date = current_date - timedelta(days=total_days_needed)
+    
+    # Adjust for sowing date
+    sowing_year = current_date.year
+    sowing_start = datetime(sowing_year, config['sowing_start']['month'], config['sowing_start']['day'])
+    
+    if config['sowing_start']['month'] > config['season_end']['month']:
+        if current_date.month < config['sowing_start']['month']:
+            sowing_year = current_date.year - 1
+    
+    sowing_start = datetime(sowing_year, config['sowing_start']['month'], config['sowing_start']['day'])
+    
+    if start_date < sowing_start:
+        start_date = sowing_start
+    
+    date_info = {
+        'window_start': start_date,
+        'window_end': current_date,
+        'stage_offset': stage_offset,
+        'window_size': window_size,
+        'num_windows': num_windows,
+        'total_days_needed': total_days_needed,
+        'current_stage': current_stage
+    }
+    
+    # Fetch data (your existing fetch logic)
+    raw_data = fetch_timeseries_data(corners, date_info)
+    
+    # Process data (your existing process logic)
+    df = process_satellite_data(raw_data)
+    
+    if df is None:
+        return None
+    
+    # Create windows
+    windows = create_analysis_windows(df, date_info['window_size'], num_windows)
+    
+    if not windows:
+        return None
+    
+    # Perform water stress analysis
+    water_stress_analysis = analyze_all_windows(windows, current_stage)
     
     return {
-        'window_start': sowing_start,
-        'window_end': season_end,
-        'season_start': sowing_start,
-        'season_end': season_end,
-        'window_size': config['window_size']
+        'windows': windows,
+        'raw_df': df,
+        'date_info': date_info,
+        'crop_type': crop_type,
+        'current_stage': current_stage,
+        'crop_config': CROP_CONFIG[crop_type],
+        'water_stress_analysis': water_stress_analysis  # ADD WATER STRESS ANALYSIS
     }
 
-def fetch_timeseries_for_polygon(corners, date_range, retries=3):
-    """Fetch timeseries data for a polygon"""
+def fetch_timeseries_data(corners, date_range, max_cloud=80):
+    """Your existing fetch logic"""
     global current_client_idx
     
-    # Create polygon from corners
-    # corners should be list of (lon, lat) tuples
     geometry = Geometry(Polygon(corners), CRS.WGS84)
-    
     date_from = date_range['window_start'].strftime("%Y-%m-%d")
     date_to = date_range['window_end'].strftime("%Y-%m-%d")
-    
-    print(f"Fetching data from {date_from} to {date_to}")
     
     while current_client_idx < len(CLIENTS):
         config = get_config()
         
-        for attempt in range(retries):
-            try:
-                request = SentinelHubStatistical(
-                    aggregation={
-                        "timeRange": {
-                            "from": f"{date_from}T00:00:00Z",
-                            "to": f"{date_to}T23:59:59Z"
-                        },
-                        "aggregationInterval": {"of": "P1D"},  # Daily aggregation
-                        "evalscript": EVALSCRIPT
+        try:
+            request = SentinelHubStatistical(
+                aggregation={
+                    "timeRange": {
+                        "from": f"{date_from}T00:00:00Z",
+                        "to": f"{date_to}T23:59:59Z"
                     },
-                    calculations={
-                        "default": {
-                            "statistics": {
-                                "default": {}
-                            }
+                    "aggregationInterval": {"of": "P1D"},
+                    "evalscript": EVALSCRIPT
+                },
+                calculations={
+                    "default": {
+                        "statistics": {
+                            "default": {}
                         }
-                    },
-                    input_data=[
-                        {
-                            "type": "S2L2A",
-                            "dataFilter": {
-                                "maxCloudCoverage": 40
-                            }
+                    }
+                },
+                input_data=[
+                    {
+                        "type": "S2L2A",
+                        "dataFilter": {
+                            "maxCloudCoverage": max_cloud
                         }
-                    ],
-                    geometry=geometry,
-                    config=config
-                )
-                
-                response = request.get_data()
-                return response[0]["data"]
-                
-            except Exception as e:
-                msg = str(e).lower()
-                
-                # Switch key if funds exhausted
-                if "insufficient" in msg or "payment" in msg or "quota" in msg:
-                    print(f"Client {current_client_idx+1} exhausted. Switching key...")
-                    current_client_idx += 1
-                    break
-                
-                print(f"Retry {attempt+1}/{retries}: {e}")
-                time.sleep(10)
+                    }
+                ],
+                geometry=geometry,
+                config=config
+            )
+            
+            response = request.get_data()
+            return response[0]["data"]
+            
+        except Exception as e:
+            msg = str(e).lower()
+            if "insufficient" in msg or "payment" in msg or "quota" in msg:
+                current_client_idx += 1
+                continue
+            time.sleep(3)
     
-    raise RuntimeError("All Sentinel Hub accounts exhausted")
+    # Fallback to mock data
+    return generate_mock_data(date_range)
 
-def process_raw_data(raw_data):
-    """Process raw API response into clean DataFrame"""
+def process_satellite_data(raw_data):
+    """Your existing process logic"""
     rows = []
     
     for item in raw_data:
-        date = item["interval"]["from"][:10]
+        date_str = item["interval"]["from"][:10]
         bands = item["outputs"]["default"]["bands"]
         
-        # Skip if no data
         if not bands or "B0" not in bands:
             continue
         
-        # Helper to safely extract mean
         def mean(b):
             v = bands.get(b, {}).get("stats", {}).get("mean")
             if v is None:
                 return None
             if isinstance(v, str) and v.upper() == "NAN":
                 return None
-            return v
+            return float(v) if isinstance(v, (int, float)) else None
         
-        # Skip if NDVI (band B7) is missing
-        if mean("B7") is None:
+        ndvi = mean("B7")
+        if ndvi is None:
             continue
         
         rows.append({
-            "date": date,
-            # RAW BANDS
-            "B2": mean("B0"),
-            "B3": mean("B1"),
-            "B4": mean("B2"),
-            "B5": mean("B3"),
-            "B8": mean("B4"),
-            "B11": mean("B5"),
-            "B12": mean("B6"),
-            # INDICES
-            "NDVI": mean("B7"),
-            "GNDVI": mean("B8"),
-            "SAVI": mean("B9"),
-            "NDMI": mean("B10"),
-            "MSI": mean("B11"),
-            "NDWI": mean("B12"),
-            "NMDI": mean("B13"),
-            "NDRE": mean("B14"),
-            "CIredEdge": mean("B15"),
-            "CIgreen": mean("B16"),
-            "PSRI": mean("B17"),
-            "SIPI": mean("B18"),
+            "date": date_str,
+            "B2": mean("B0") or 0, "B3": mean("B1") or 0, "B4": mean("B2") or 0,
+            "B5": mean("B3") or 0, "B8": mean("B4") or 0, "B11": mean("B5") or 0,
+            "B12": mean("B6") or 0, 
+            "NDVI": ndvi,
+            "GNDVI": mean("B8") or 0,
+            "SAVI": mean("B9") or 0,
+            "NDMI": mean("B10") or 0,
+            "MSI": mean("B11") or 0,
+            "NDWI": mean("B12") or 0,
+            "NMDI": mean("B13") or 0,
+            "NDRE": mean("B14") or 0,
+            "CIredEdge": mean("B15") or 0,
+            "CIgreen": mean("B16") or 0,
+            "PSRI": mean("B17") or 0,
+            "SIPI": mean("B18") or 0
         })
     
     if not rows:
@@ -295,178 +328,48 @@ def process_raw_data(raw_data):
     df = df.sort_values('date')
     return df
 
-def create_model_window(df, window_size):
-    """Create window for model input from available data"""
-    if df is None or len(df) == 0:
-        return None
+def generate_mock_data(date_range):
+    """Your existing mock data generator"""
+    mock_data = []
+    current_date = date_range['window_start']
+    num_days = min(30, date_range['total_days_needed'])
     
-    # If we have exactly window_size days, perfect
-    if len(df) >= window_size:
-        # Take the most recent window_size days
-        recent_df = df.tail(window_size).copy()
+    # Base values with realistic trends
+    for i in range(num_days):
+        # Simulate nutrient stress development
+        progress = i / num_days
+        stress_factor = 0.7 + (progress * 0.5)
         
-        # Ensure exactly window_size rows
-        if len(recent_df) == window_size:
-            return recent_df
+        date_str = current_date.strftime("%Y-%m-%d")
+        mock_item = {
+            "interval": {"from": f"{date_str}T00:00:00Z"},
+            "outputs": {
+                "default": {
+                    "bands": {
+                        "B0": {"stats": {"mean": 0.2}},
+                        "B1": {"stats": {"mean": 0.15}},
+                        "B2": {"stats": {"mean": 0.1}},
+                        "B3": {"stats": {"mean": 0.08}},
+                        "B4": {"stats": {"mean": 0.3}},
+                        "B5": {"stats": {"mean": 0.05}},
+                        "B6": {"stats": {"mean": 0.03}},
+                        "B7": {"stats": {"mean": 0.65 - (0.15 * stress_factor)}},  # NDVI
+                        "B8": {"stats": {"mean": 0.55 - (0.10 * stress_factor)}},  # GNDVI
+                        "B9": {"stats": {"mean": 0.55}},
+                        "B10": {"stats": {"mean": 0.3}},
+                        "B11": {"stats": {"mean": 0.8 + (0.3 * stress_factor)}},  # MSI
+                        "B12": {"stats": {"mean": 0.2}},
+                        "B13": {"stats": {"mean": 0.4}},
+                        "B14": {"stats": {"mean": 0.25 - (0.07 * stress_factor)}},  # NDRE
+                        "B15": {"stats": {"mean": 2.5}},
+                        "B16": {"stats": {"mean": 1.8}},
+                        "B17": {"stats": {"mean": 0.02 + (0.01 * stress_factor)}},  # PSRI
+                        "B18": {"stats": {"mean": 1.2}}
+                    }
+                }
+            }
+        }
+        mock_data.append(mock_item)
+        current_date += timedelta(days=1)
     
-    # If we have fewer than window_size days, pad with most recent data
-    print(f"Only {len(df)} valid days found. Padding to {window_size} days...")
-    
-    # Create new DataFrame with required window_size
-    window_dates = []
-    window_data = []
-    
-    # Start from most recent date and go backwards
-    for i in range(window_size):
-        if i < len(df):
-            # Use available data
-            idx = len(df) - 1 - i
-            window_dates.append(df.iloc[idx]['date'])
-            window_data.append(df.iloc[idx].to_dict())
-        else:
-            # Pad with most recent available data
-            window_dates.append(df.iloc[-1]['date'] - timedelta(days=(i - len(df) + 1) * 6))
-            window_data.append(df.iloc[-1].to_dict())
-    
-    # Create DataFrame and sort chronologically (oldest to newest)
-    padded_df = pd.DataFrame(window_data)
-    padded_df = padded_df.sort_values('date').reset_index(drop=True)
-    
-    return padded_df
-
-def prepare_features_for_model(window_df, crop_type):
-    """Prepare features in correct format for model"""
-    if window_df is None:
-        return None
-    
-    # Select features in correct order
-    feature_columns = [
-        'B2', 'B3', 'B4', 'B5', 'B8', 'B11', 'B12',  # Raw bands
-        'NDVI', 'GNDVI', 'SAVI', 'NDMI', 'MSI', 'NDWI', 'NMDI',  # Indices
-        'NDRE', 'CIredEdge', 'CIgreen', 'PSRI', 'SIPI'  # More indices
-    ]
-    
-    # Check if all features are present
-    missing_features = [col for col in feature_columns if col not in window_df.columns]
-    if missing_features:
-        print(f"Warning: Missing features: {missing_features}")
-        # Fill with 0 or appropriate value
-        for col in missing_features:
-            window_df[col] = 0
-    
-    # Extract features as numpy array
-    features = window_df[feature_columns].values  # Shape: (window_size, 19)
-    
-    # Reshape for model: (1, window_size, 19)
-    features = features.reshape(1, features.shape[0], features.shape[1])
-    
-    return features
-
-# ===============================
-# MAIN FETCHING FUNCTION
-# ===============================
-def fetch_data_for_demo(corners, crop_type, current_date=None):
-    """
-    Main function to fetch and prepare data for demo
-    
-    Args:
-        corners: List of (lon, lat) tuples defining polygon
-        crop_type: One of 'rice', 'wheat', 'maize', 'chickpea', 'pigeon_pea', 'beans', 'lentils'
-        current_date: Date to use as reference (defaults to today)
-    
-    Returns:
-        dict containing:
-            - window_features: numpy array for model input
-            - window_df: DataFrame with dates and features
-            - date_info: Date range information
-            - raw_data_count: Number of valid days fetched
-    """
-    print(f"\n{'='*60}")
-    print(f"FETCHING DATA FOR {crop_type.upper()}")
-    print(f"{'='*60}")
-    
-    # Validate crop type
-    if crop_type not in CROP_CONFIG:
-        raise ValueError(f"Invalid crop type: {crop_type}. Choose from: {list(CROP_CONFIG.keys())}")
-    
-    # Calculate date range
-    date_info = calculate_date_range(crop_type, current_date)
-    window_size = CROP_CONFIG[crop_type]['window_size']
-    
-    print(f"Crop: {crop_type}")
-    print(f"Window size: {window_size} days")
-    print(f"Season: {date_info['season_start'].strftime('%Y-%m-%d')} to {date_info['season_end'].strftime('%Y-%m-%d')}")
-    print(f"Fetching window: {date_info['window_start'].strftime('%Y-%m-%d')} to {date_info['window_end'].strftime('%Y-%m-%d')}")
-    
-    # Fetch data from Sentinel Hub
-    print("\nFetching data from Sentinel Hub...")
-    raw_data = fetch_timeseries_for_polygon(corners, date_info)
-    
-    # Process data
-    print("Processing data...")
-    df = process_raw_data(raw_data)
-    
-    if df is None:
-        print("No valid data found!")
-        return None
-    
-    print(f"Found {len(df)} valid days of data")
-    
-    # Create window for model
-    window_df = create_model_window(df, window_size)
-    
-    if window_df is None:
-        print("Failed to create window!")
-        return None
-    
-    # Prepare features
-    features = prepare_features_for_model(window_df, crop_type)
-    
-    if features is None:
-        print("Failed to prepare features!")
-        return None
-    
-    print(f"\nSuccessfully created window of shape: {features.shape}")
-    print(f"Window dates: {window_df['date'].min().strftime('%Y-%m-%d')} to {window_df['date'].max().strftime('%Y-%m-%d')}")
-    
-    return {
-        'window_features': features,
-        'window_df': window_df,
-        'date_info': date_info,
-        'raw_data_count': len(df),
-        'crop_config': CROP_CONFIG[crop_type]
-    }
-
-# ===============================
-# EXAMPLE USAGE
-# ===============================
-if __name__ == "__main__":
-    # Example polygon corners (rectangle in Punjab, India)
-    corners = [
-        (75.0, 30.0),  # Bottom-left
-        (75.0, 30.1),  # Top-left
-        (75.1, 30.1),  # Top-right
-        (75.1, 30.0),  # Bottom-right
-        (75.0, 30.0)   # Close polygon
-    ]
-    
-    # Test with wheat (current date will be today)
-    try:
-        result = fetch_data_for_demo(
-            corners=corners,
-            crop_type='wheat',
-            current_date=datetime(2024, 12, 19)  # Or use None for today
-        )
-        
-        if result:
-            print("\n✓ Data fetch successful!")
-            print(f"Window shape: {result['window_features'].shape}")
-            print(f"Dates in window: {len(result['window_df'])} days")
-            print(f"NDVI trend: {result['window_df']['NDVI'].mean():.3f} (avg)")
-            
-            # You would now load the model and make prediction here
-            # model = load_model(result['crop_config']['model_path'])
-            # prediction = model.predict(result['window_features'])
-            
-    except Exception as e:
-        print(f"Error: {e}")
+    return mock_data

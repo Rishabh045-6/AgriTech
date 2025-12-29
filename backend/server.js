@@ -86,12 +86,12 @@ app.post('/api/login', async (req, res) => {
     } else {
       // Create new user with UNIQUE farmer_id using UUID
       farmerId = `farmer_${uuidv4().replace(/-/g, '')}`;
-      
+
       await pool.query(
         'INSERT INTO users (username, farmer_id) VALUES ($1, $2)',
         [username, farmerId]
       );
-      
+
       console.log(`Created new user: ${username} with farmer_id: ${farmerId}`);
     }
 
@@ -363,7 +363,7 @@ app.post('/api/run-model', async (req, res) => {
     // ✅ ENCODE coordinates properly to avoid shell splitting
     const { exec } = require('child_process');
     const pythonScript = 'predict_crop_stage.py';
-    
+
     // ✅ Use double quotes and escape inner quotes
     const coordinatesJson = JSON.stringify(coordinates).replace(/"/g, '\\"');
     const command = `python "${pythonScript}" "${farmerId}" "${cropType}" "${coordinatesJson}"`;
@@ -377,9 +377,9 @@ app.post('/api/run-model', async (req, res) => {
 
       if (error) {
         console.error('Python script error:', error);
-        return res.status(500).json({ 
+        return res.status(500).json({
           error: `Python script failed: ${error.message}`,
-          success: false 
+          success: false
         });
       }
 
@@ -388,50 +388,51 @@ app.post('/api/run-model', async (req, res) => {
       }
 
       if (!stdout || stdout.trim() === '') {
-        return res.status(500).json({ 
+        return res.status(500).json({
           error: 'Python script returned no output',
-          success: false 
+          success: false
         });
       }
 
       try {
         const result = JSON.parse(stdout.trim());
-        
+
         if (result.success) {
-          // ✅ Ensure window_df is properly formatted for JSON
+          // Ensure window_df is properly formatted
           if (result.window_df) {
-            // Convert any problematic data types
-            const formattedWindowDf = result.window_df.map(row => {
+            // Clean any problematic data
+            result.window_df = result.window_df.map(row => {
               const cleanedRow = {};
               for (const [key, value] of Object.entries(row)) {
-                if (value instanceof Date) {
-                  cleanedRow[key] = value.toISOString();
+                if (value === null || value === undefined) {
+                  cleanedRow[key] = null;
                 } else if (typeof value === 'number' && !isNaN(value)) {
                   cleanedRow[key] = value;
-                } else if (value === null || value === undefined) {
-                  cleanedRow[key] = null;
+                } else if (typeof value === 'string') {
+                  cleanedRow[key] = value;
+                } else if (typeof value === 'boolean') {
+                  cleanedRow[key] = value;
                 } else {
                   cleanedRow[key] = value;
                 }
               }
               return cleanedRow;
             });
-            result.window_df = formattedWindowDf;
           }
-          
+
           res.json(result);
         } else {
-          res.status(500).json({ 
+          res.status(500).json({
             error: result.error || 'Model prediction failed',
-            success: false 
+            success: false
           });
         }
       } catch (parseError) {
         console.error('JSON parse error:', parseError);
         console.error('Raw output:', stdout);
-        res.status(500).json({ 
+        res.status(500).json({
           error: `Invalid JSON response from Python script: ${parseError.message}`,
-          success: false 
+          success: false
         });
       }
     });
