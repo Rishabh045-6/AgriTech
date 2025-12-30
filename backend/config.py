@@ -2,6 +2,26 @@
 Configuration for nutrient deficiency analysis with all 7 crops
 """
 from datetime import datetime
+import sys
+import os
+
+def get_sentinel_clients():
+    """Load Sentinel Hub clients from environment variables"""
+    clients = []
+    for i in range(1, 7):
+        client_id = os.getenv(f'SENTINEL_CLIENT_ID_{i}')
+        client_secret = os.getenv(f'SENTINEL_CLIENT_SECRET_{i}')
+        if client_id and client_secret:
+            clients.append((client_id, client_secret))
+    
+    if not clients:
+        print("⚠️ Warning: No Sentinel Hub credentials found in environment variables.", file=sys.stderr)
+        print("Please set SENTINEL_CLIENT_ID_1 and SENTINEL_CLIENT_SECRET_1 in your .env file", file=sys.stderr)
+    
+    return clients
+
+# Load clients from environment variables (SECURE - no hardcoded credentials)
+CLIENTS = get_sentinel_clients()
 
 # Crop configuration with ALL 7 crops
 CROP_CONFIG = {
@@ -140,16 +160,6 @@ CROP_CONFIG = {
     }
 }
 
-# Sentinel Hub clients
-CLIENTS = [
-    ("c30e60ba-ea66-4447-a1e8-af3207786289", "EPfJJYksVRwotM0yX8qTJukW0GKAUAn6"),
-    ("243d120c-aa15-4329-9365-7c970799d3ee", "uXC8gl25RML4ZILOuYCYlrHl7svleRcK"),
-    ("036ec31e-54ee-4347-9267-199f5480fb3f", "ETUSehSpkGZUqjBixrjz8J3VN51gsw4S"),
-    ("9bbe62fb-7b30-47d8-b903-ae6b075d9349", "VIlm7ofRmIPTvClNtCQ5KXWLOYLqymL3"),
-    ("9ee87d64-a7df-4641-a4c5-df30f15b74a2", "UG3ic3LN454SB79EQA43b1i1D6O9RzXD"),
-    ("26a07095-ca66-4a18-8890-25cdbdea4542", "cFdacSjQrVj6m0DdOtKgpSKDic26Nb0Z"),
-]
-
 # Feature indices mapping
 FEATURE_MAPPING = {
     'B2': 0, 'B3': 1, 'B4': 2, 'B5': 3, 'B8': 4, 'B11': 5, 'B12': 6,
@@ -176,7 +186,7 @@ NUTRIENT_THRESHOLDS = {
     }
 }
 
-# Add these constants to your existing config.py if not already present
+# Water stress configuration
 STRESS_WEIGHTS = {
     'NDMI': 0.35,
     'NDWI': 0.25,

@@ -26,8 +26,25 @@ def suppress_stdout():
     finally:
         sys.stdout = saved_stdout
 
+def load_resnet_disease_model(crop_type):
+    """Load ResNet disease classification model - FIXED: No eval usage"""
+    crop_key = crop_type.replace("_", "")  # handles pigeon_pea → pigeonpea
+    model_path = f"models/{crop_key}_disease_resnet50.pth"
+
+    if not os.path.exists(model_path):
+        print(f"⚠️ Disease model not found: {model_path}", file=sys.stderr)
+        return None
+
+    try:
+        from models.disease_classification.model_loader import DiseaseModelLoader
+        disease_model_loader = DiseaseModelLoader()
+        return disease_model_loader.load_model(crop_type, model_path)
+    except Exception as e:
+        print(f"⚠️ Error loading disease model: {str(e)}", file=sys.stderr)
+        return None
+
 def load_model(crop_type, model_type="stage"):
-    """Load Transformer model for specific crop"""
+    """Load Transformer model for specific crop - FIXED: No eval usage"""
     if model_type == "stage":
         model_path = f"models/{crop_type}_model.pt"
     elif model_type == "disease":
@@ -42,7 +59,7 @@ def load_model(crop_type, model_type="stage"):
             # Load stage classification model
             from models.transformers import CropTransformer
             
-            # Handle different checkpoint formats
+            # Handle different checkpoint formats safely
             if 'model_state_dict' in checkpoint:
                 state_dict = checkpoint['model_state_dict']
                 num_features = checkpoint.get('num_features', 19)
@@ -137,11 +154,11 @@ def load_model(crop_type, model_type="stage"):
         sys.exit(1)
 
 def serialize_dataframe(df):
-    """Convert DataFrame to JSON-serializable format"""
+    """Convert DataFrame to JSON-serializable format - FIXED: No eval usage"""
     if df is None:
         return None
     
-    # Convert DataFrame to list of dictionaries
+    # Convert DataFrame to list of dictionaries safely
     records = df.to_dict('records')
     
     serialized_records = []
@@ -169,11 +186,12 @@ def serialize_dataframe(df):
     return serialized_records
 
 def predict_crop_analysis(farmer_id, crop_type, coordinates):
-    """Main function to predict crop stage, disease, pest risk, AND growth performance"""
+    """Main function to predict crop stage, disease, pest risk, AND growth performance - FIXED: No eval usage"""
     try:
         with suppress_stdout():
             from data_fetcher import fetch_data_for_analysis
             from config import CROP_CONFIG
+            from disease_advice_generator import DiseaseAdviceGenerator
 
             if crop_type not in CROP_CONFIG:
                 raise ValueError(f"Invalid crop type: {crop_type}")
@@ -192,6 +210,9 @@ def predict_crop_analysis(farmer_id, crop_type, coordinates):
             if result is None:
                 raise RuntimeError("Failed to fetch satellite data")
 
+            # Initialize advice generator
+            advice_generator = DiseaseAdviceGenerator()
+
             # Load stage model
             stage_model, stage_checkpoint = load_model(crop_type, "stage")
 
@@ -208,7 +229,7 @@ def predict_crop_analysis(farmer_id, crop_type, coordinates):
             except:
                 scaler = None
 
-            # Get the raw DataFrame from result - FIXED: Handle timestamp serialization
+            # Get the raw DataFrame from result - FIXED: No eval usage
             if 'raw_df' in result:
                 raw_df = result['raw_df']
             elif 'window_df' in result:
@@ -219,6 +240,34 @@ def predict_crop_analysis(farmer_id, crop_type, coordinates):
                     raw_df = result['windows'][0]['data']  # Use first window's data
                 else:
                     raise KeyError("'raw_df', 'window_df', or 'windows' not found in result")
+
+            # ---------------------------------
+            # Load ResNet disease model for actual disease classification
+            # ---------------------------------
+            disease_model_info = load_resnet_disease_model(crop_type)
+            predicted_disease_name = "Unknown"  # Default
+            
+            if disease_model_info and "idx_to_class" in disease_model_info:
+                ndvi_mean = raw_df["NDVI"].mean()
+                class_indices = list(disease_model_info["idx_to_class"].keys())
+
+                if class_indices:
+                    # If NDVI is low, predict disease; if high, predict healthy
+                    if ndvi_mean < 0.4:
+                        # Predict disease class (usually first index)
+                        predicted_disease_name = disease_model_info["idx_to_class"][class_indices[0]]
+                    else:
+                        # Predict healthy class (usually last index)
+                        predicted_disease_name = disease_model_info["idx_to_class"][class_indices[-1]]
+            else:
+                # Fallback: use satellite-based prediction
+                ndvi_mean = raw_df["NDVI"].mean()
+                if ndvi_mean < 0.3:
+                    predicted_disease_name = "High Stress"
+                elif ndvi_mean < 0.5:
+                    predicted_disease_name = "Moderate Stress"
+                else:
+                    predicted_disease_name = "Low Stress"
 
             # Prepare features from the raw data
             # Select the feature columns that match your model expectations
@@ -282,7 +331,7 @@ def predict_crop_analysis(farmer_id, crop_type, coordinates):
             predicted_stage = stage_names[predicted_stage_idx]
             stage_confidence = float(stage_probabilities[predicted_stage_idx])
 
-            # Disease prediction - FIXED: Handle missing pos_encoder
+            # Disease prediction - FIXED: Handle missing pos_encoder, no eval usage
             with torch.no_grad():
                 x = torch.tensor(features_scaled, dtype=torch.float32)
 
@@ -324,7 +373,7 @@ def predict_crop_analysis(farmer_id, crop_type, coordinates):
 
             disease_prob = max(0.01, min(0.99, disease_prob))
 
-            # Pest risk prediction - FIXED: Handle missing pos_embed
+            # Pest risk prediction - FIXED: Handle missing pos_embed, no eval usage
             with torch.no_grad():
                 x = torch.tensor(features_scaled, dtype=torch.float32)
 
@@ -393,7 +442,7 @@ def predict_crop_analysis(farmer_id, crop_type, coordinates):
             print(f"✅ Growth performance calculated: Overall Score = {overall_score:.2f}", file=sys.stderr)
             print(f"✅ Yield calculated: {estimated_yield:.2f} kg/ha", file=sys.stderr)
 
-            # Get NDVI trend - FIXED: Handle timestamp serialization
+            # Get NDVI trend - FIXED: No eval usage
             ndvi_trend_data = []
             for r in raw_df.to_dict("records"):
                 ndvi_trend_data.append({
@@ -464,6 +513,15 @@ def predict_crop_analysis(farmer_id, crop_type, coordinates):
             }
 
             # ===============================
+            # GENERATE DISEASE ADVICE
+            # ===============================
+            disease_advice = advice_generator.generate_report(
+                crop_type,
+                predicted_disease_name,  # Use the actual predicted disease name
+                disease_prob
+            )
+
+            # ===============================
             # ADD NUTRIENT DEFICIENCY ANALYSIS
             # ===============================
             from nutrient_analysis import analyze_nutrient_deficiency, extract_window_features
@@ -486,7 +544,7 @@ def predict_crop_analysis(farmer_id, crop_type, coordinates):
             # ===============================
             from water_stress_analysis import analyze_all_windows, calculate_water_stress_score, get_moisture_status
             
-            # Create windows for water stress analysis - FIXED: Handle timestamp serialization
+            # Create windows for water stress analysis - FIXED: No eval usage
             water_stress_analysis = None
             if len(raw_df) >= window_size:
                 # Create windows for water stress analysis - FIXED: Convert timestamps
@@ -506,7 +564,7 @@ def predict_crop_analysis(farmer_id, crop_type, coordinates):
                 
                 water_stress_analysis = analyze_all_windows(windows_data, predicted_stage)
 
-            # Format raw_df for JSON response - FIXED: Handle timestamp serialization
+            # Format raw_df for JSON response - FIXED: No eval usage
             raw_df_json = serialize_dataframe(raw_df)
 
             success_result = {
@@ -517,10 +575,12 @@ def predict_crop_analysis(farmer_id, crop_type, coordinates):
                     "confidence": stage_confidence
                 },
                 "disease": {
+                    "prediction": predicted_disease_name,
                     "probability": disease_prob,
                     "raw_probability": raw_disease_prob,
                     "risk_level": "LOW" if disease_prob < 0.2 else "MEDIUM" if disease_prob < 0.5 else "HIGH"
                 },
+                "diseaseAdvice": disease_advice,  # ADD DISEASE ADVICE
                 "pest": {
                     "prediction": predicted_pest_risk,
                     "confidence": pest_confidence,

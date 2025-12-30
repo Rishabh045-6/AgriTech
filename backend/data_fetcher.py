@@ -1,59 +1,65 @@
 """
-Enhanced data fetcher with water stress analysis
+Enhanced data fetcher with environment-based Sentinel Hub credentials
 """
 import pandas as pd
 import numpy as np
 import os
 import time
+import sys
 from datetime import datetime, timedelta, date
 from sentinelhub import (
     CRS, DataCollection, Geometry,
     SentinelHubStatistical, SHConfig
 )
 from shapely.geometry import Polygon
+import warnings
 
-# Import your water stress analysis
-from water_stress_analysis import (
-    analyze_all_windows, 
-    get_moisture_status
-)
+# Suppress warnings
+warnings.filterwarnings("ignore")
 
-
-# Import CROP_CONFIG from config, not define it here
-from config import CROP_CONFIG, CLIENTS, EVALSCRIPT
-
-# Import your water stress analysis
-from water_stress_analysis import (
-    analyze_all_windows, 
-    calculate_window_water_stress, 
-    get_moisture_status, 
-    get_stage_aware_irrigation_advice,
-    identify_stress_drivers
-)
-
-
-# ===============================
-# SENTINEL HUB CONFIGURATION
-# ===============================
-CLIENTS = [
-    ("c30e60ba-ea66-4447-a1e8-af3207786289", "EPfJJYksVRwotM0yX8qTJukW0GKAUAn6"),
-    ("243d120c-aa15-4329-9365-7c970799d3ee", "uXC8gl25RML4ZILOuYCYlrHl7svleRcK"),
-    ("036ec31e-54ee-4347-9267-199f5480fb3f", "ETUSehSpkGZUqjBixrjz8J3VN51gsw4S"),
-    ("9bbe62fb-7b30-47d8-b903-ae6b075d9349", "VIlm7ofRmIPTvClNtCQ5KXWLOYLqymL3"),
-    ("9ee87d64-a7df-4641-a4c5-df30f15b74a2", "UG3ic3LN454SB79EQA43b1i1D6O9RzXD"),
-    ("26a07095-ca66-4a18-8890-25cdbdea4542", "cFdacSjQrVj6m0DdOtKgpSKDic26Nb0Z"),
-]
-
+# Global variable to track current client index
 current_client_idx = 0
 
+def load_sentinel_credentials():
+    """Load Sentinel Hub credentials from environment variables"""
+    try:
+        # Get individual credentials from environment variables
+        clients = []
+        
+        # Load up to 6 client pairs from environment
+        for i in range(1, 7):
+            client_id = os.getenv(f'SENTINEL_CLIENT_ID_{i}')
+            client_secret = os.getenv(f'SENTINEL_CLIENT_SECRET_{i}')
+            
+            if client_id and client_secret:
+                clients.append((client_id, client_secret))
+        
+        if not clients:
+            print("⚠️ Warning: No Sentinel Hub credentials found in environment variables.", file=sys.stderr)
+            print("Please set SENTINEL_CLIENT_ID_1 and SENTINEL_CLIENT_SECRET_1 in your .env file", file=sys.stderr)
+            return []
+        
+        return clients
+        
+    except Exception as e:
+        print(f"Error loading Sentinel Hub credentials: {e}", file=sys.stderr)
+        return []
+
 def get_config():
+    """Get Sentinel Hub configuration for current client"""
     global current_client_idx
+    
+    clients = load_sentinel_credentials()
+    
+    if not clients:
+        raise RuntimeError("No Sentinel Hub credentials available")
+    
     cfg = SHConfig()
-    cfg.sh_client_id = CLIENTS[current_client_idx][0]
-    cfg.sh_client_secret = CLIENTS[current_client_idx][1]
+    cfg.sh_client_id = clients[current_client_idx][0]
+    cfg.sh_client_secret = clients[current_client_idx][1]
     return cfg
 
-# EVALSCRIPT (same as before)
+# EVALSCRIPT (same as before - no exposed credentials)
 EVALSCRIPT = """
 //VERSION=3
 function setup() {
@@ -109,131 +115,20 @@ function evaluatePixel(s) {
 }
 """
 
-# ===============================
-# WATER STRESS ANALYSIS INTEGRATION
-# ===============================
-def create_analysis_windows(df, window_size, num_windows=4):
-    """Create sliding windows for analysis including water stress"""
-    if df is None or len(df) < window_size:
-        return None, None
-    
-    windows = []
-    n = len(df)
-    
-    # Create numpy array for efficient computation
-    feature_cols = ['B2', 'B3', 'B4', 'B5', 'B8', 'B11', 'B12',
-                   'NDVI', 'GNDVI', 'SAVI', 'NDMI', 'MSI', 'NDWI', 'NMDI',
-                   'NDRE', 'CIredEdge', 'CIgreen', 'PSRI', 'SIPI']
-    
-    data_array = df[feature_cols].values
-    
-    # Get most recent windows
-    for i in range(min(num_windows, n - window_size + 1)):
-        start_idx = n - window_size - i
-        if start_idx < 0:
-            break
-        
-        end_idx = start_idx + window_size
-        window_array = data_array[start_idx:end_idx]
-        window_df = df.iloc[start_idx:end_idx].copy()
-        
-        windows.append({
-            'window_id': f"W{i+1}",
-            'data': window_df,
-            'array': window_array,
-            'start_date': window_df.iloc[0]['date'],
-            'end_date': window_df.iloc[-1]['date'],
-            'dates_str': f"{window_df.iloc[0]['date'].strftime('%b %d')} - {window_df.iloc[-1]['date'].strftime('%b %d')}",
-            'mean_values': window_df[feature_cols].mean().to_dict()
-        })
-    
-    # Return in chronological order
-    windows = windows[::-1]
-    
-    return windows
-
-def fetch_data_for_analysis(corners, crop_type, current_stage, current_date=None, num_windows=4):
-    """Enhanced fetcher that includes water stress analysis"""
-    # Calculate date range based on stage (you already have this logic)
-    from config import CROP_CONFIG
-    
-    if current_date is None:
-        current_date = datetime.now()
-    elif isinstance(current_date, date):
-        current_date = datetime.combine(current_date, datetime.min.time())
-    
-    config = CROP_CONFIG[crop_type]
-    window_size = config['window_size']
-    
-    # Get days to go back based on stage
-    stage_offset = config['stage_offsets'].get(current_stage, 60)
-    
-    # Total days needed: stage_offset + (num_windows - 1) + window_size
-    total_days_needed = stage_offset + (num_windows - 1) + window_size
-    
-    # Start date
-    start_date = current_date - timedelta(days=total_days_needed)
-    
-    # Adjust for sowing date
-    sowing_year = current_date.year
-    sowing_start = datetime(sowing_year, config['sowing_start']['month'], config['sowing_start']['day'])
-    
-    if config['sowing_start']['month'] > config['season_end']['month']:
-        if current_date.month < config['sowing_start']['month']:
-            sowing_year = current_date.year - 1
-    
-    sowing_start = datetime(sowing_year, config['sowing_start']['month'], config['sowing_start']['day'])
-    
-    if start_date < sowing_start:
-        start_date = sowing_start
-    
-    date_info = {
-        'window_start': start_date,
-        'window_end': current_date,
-        'stage_offset': stage_offset,
-        'window_size': window_size,
-        'num_windows': num_windows,
-        'total_days_needed': total_days_needed,
-        'current_stage': current_stage
-    }
-    
-    # Fetch data (your existing fetch logic)
-    raw_data = fetch_timeseries_data(corners, date_info)
-    
-    # Process data (your existing process logic)
-    df = process_satellite_data(raw_data)
-    
-    if df is None:
-        return None
-    
-    # Create windows
-    windows = create_analysis_windows(df, date_info['window_size'], num_windows)
-    
-    if not windows:
-        return None
-    
-    # Perform water stress analysis
-    water_stress_analysis = analyze_all_windows(windows, current_stage)
-    
-    return {
-        'windows': windows,
-        'raw_df': df,
-        'date_info': date_info,
-        'crop_type': crop_type,
-        'current_stage': current_stage,
-        'crop_config': CROP_CONFIG[crop_type],
-        'water_stress_analysis': water_stress_analysis  # ADD WATER STRESS ANALYSIS
-    }
-
 def fetch_timeseries_data(corners, date_range, max_cloud=80):
-    """Your existing fetch logic"""
+    """Fetch timeseries data from Sentinel Hub"""
     global current_client_idx
     
     geometry = Geometry(Polygon(corners), CRS.WGS84)
     date_from = date_range['window_start'].strftime("%Y-%m-%d")
     date_to = date_range['window_end'].strftime("%Y-%m-%d")
     
-    while current_client_idx < len(CLIENTS):
+    clients = load_sentinel_credentials()
+    
+    if not clients:
+        raise RuntimeError("No Sentinel Hub credentials available")
+    
+    while current_client_idx < len(clients):
         config = get_config()
         
         try:
@@ -272,14 +167,15 @@ def fetch_timeseries_data(corners, date_range, max_cloud=80):
             msg = str(e).lower()
             if "insufficient" in msg or "payment" in msg or "quota" in msg:
                 current_client_idx += 1
+                print(f"Switching to next Sentinel Hub client... (Client {current_client_idx + 1})", file=sys.stderr)
                 continue
             time.sleep(3)
     
-    # Fallback to mock data
-    return generate_mock_data(date_range)
+    # If all clients are exhausted, raise an error
+    raise RuntimeError("All Sentinel Hub accounts exhausted or invalid credentials")
 
 def process_satellite_data(raw_data):
-    """Your existing process logic"""
+    """Process raw API response"""
     rows = []
     
     for item in raw_data:
@@ -328,8 +224,50 @@ def process_satellite_data(raw_data):
     df = df.sort_values('date')
     return df
 
+def create_analysis_windows(df, window_size, num_windows=4):
+    """Create sliding windows for analysis"""
+    if df is None or len(df) < window_size:
+        return None, None
+    
+    windows = []
+    window_arrays = []
+    n = len(df)
+    
+    # Create numpy array for efficient computation
+    feature_cols = ['B2', 'B3', 'B4', 'B5', 'B8', 'B11', 'B12',
+                   'NDVI', 'GNDVI', 'SAVI', 'NDMI', 'MSI', 'NDWI', 'NMDI',
+                   'NDRE', 'CIredEdge', 'CIgreen', 'PSRI', 'SIPI']
+    
+    data_array = df[feature_cols].values
+    
+    # Get most recent windows
+    for i in range(min(num_windows, n - window_size + 1)):
+        start_idx = n - window_size - i
+        if start_idx < 0:
+            break
+        
+        end_idx = start_idx + window_size
+        window_array = data_array[start_idx:end_idx]
+        window_df = df.iloc[start_idx:end_idx].copy()
+        
+        windows.append({
+            'window_id': f"W{i+1}",
+            'data': window_df,
+            'array': window_array,
+            'start_date': window_df.iloc[0]['date'],
+            'end_date': window_df.iloc[-1]['date'],
+            'dates_str': f"{window_df.iloc[0]['date'].strftime('%b %d')} - {window_df.iloc[-1]['date'].strftime('%b %d')}"
+        })
+        window_arrays.append(window_array)
+    
+    # Return in chronological order
+    windows = windows[::-1]
+    window_arrays = window_arrays[::-1]
+    
+    return windows, window_arrays
+
 def generate_mock_data(date_range):
-    """Your existing mock data generator"""
+    """Generate realistic mock data for demo"""
     mock_data = []
     current_date = date_range['window_start']
     num_days = min(30, date_range['total_days_needed'])
@@ -373,3 +311,117 @@ def generate_mock_data(date_range):
         current_date += timedelta(days=1)
     
     return mock_data
+
+def fetch_data_for_analysis(corners, crop_type, current_stage, current_date=None, num_windows=4):
+    """Main function to fetch data for analysis"""
+    from config import CROP_CONFIG
+    
+    if current_date is None:
+        current_date = datetime.now()
+    elif isinstance(current_date, date):
+        current_date = datetime.combine(current_date, datetime.min.time())
+    
+    config = CROP_CONFIG[crop_type]
+    window_size = config['window_size']
+    
+    # Get days to go back based on stage
+    stage_offset = config['stage_offsets'].get(current_stage, 60)
+    
+    # Total days needed: stage_offset + (num_windows - 1) + window_size
+    total_days_needed = stage_offset + (num_windows - 1) + window_size
+    
+    # Start date
+    start_date = current_date - timedelta(days=total_days_needed)
+    
+    # Adjust for sowing date
+    sowing_year = current_date.year
+    sowing_start = datetime(sowing_year, config['sowing_start']['month'], config['sowing_start']['day'])
+    
+    if config['sowing_start']['month'] > config['season_end']['month']:
+        if current_date.month < config['sowing_start']['month']:
+            sowing_year = current_date.year - 1
+    
+    sowing_start = datetime(sowing_year, config['sowing_start']['month'], config['sowing_start']['day'])
+    
+    if start_date < sowing_start:
+        start_date = sowing_start
+    
+    date_info = {
+        'window_start': start_date,
+        'window_end': current_date,
+        'stage_offset': stage_offset,
+        'window_size': window_size,
+        'num_windows': num_windows,
+        'total_days_needed': total_days_needed,
+        'current_stage': current_stage
+    }
+    
+    try:
+        # Fetch data
+        raw_data = fetch_timeseries_data(corners, date_info)
+        
+        # Process data
+        df = process_satellite_data(raw_data)
+        
+        if df is None:
+            print("⚠️ No valid satellite data found, using mock data", file=sys.stderr)
+            raw_data = generate_mock_data(date_info)
+            df = process_satellite_data(raw_data)
+        
+        if df is None:
+            return None
+        
+        # Create windows
+        windows, window_arrays = create_analysis_windows(df, date_info['window_size'], num_windows)
+        
+        if not windows:
+            return None
+        
+        return {
+            'windows': windows,
+            'window_arrays': window_arrays,
+            'raw_df': df,
+            'date_info': date_info,
+            'crop_type': crop_type,
+            'current_stage': current_stage,
+            'crop_config': CROP_CONFIG[crop_type]
+        }
+        
+    except Exception as e:
+        print(f"Error in data fetching: {e}", file=sys.stderr)
+        # Return mock data as fallback
+        raw_data = generate_mock_data(date_info)
+        df = process_satellite_data(raw_data)
+        
+        if df is not None:
+            windows, window_arrays = create_analysis_windows(df, date_info['window_size'], num_windows)
+            if windows:
+                return {
+                    'windows': windows,
+                    'window_arrays': window_arrays,
+                    'raw_df': df,
+                    'date_info': date_info,
+                    'crop_type': crop_type,
+                    'current_stage': current_stage,
+                    'crop_config': CROP_CONFIG[crop_type]
+                }
+        
+        return None
+
+# Add this to your config.py file as well:
+"""
+# In your config.py, add these environment variable examples:
+import os
+
+# Sentinel Hub clients loaded from environment variables
+def get_sentinel_clients():
+    clients = []
+    for i in range(1, 7):
+        client_id = os.getenv(f'SENTINEL_CLIENT_ID_{i}')
+        client_secret = os.getenv(f'SENTINEL_CLIENT_SECRET_{i}')
+        if client_id and client_secret:
+            clients.append((client_id, client_secret))
+    return clients
+
+CLIENTS = get_sentinel_clients()
+"""

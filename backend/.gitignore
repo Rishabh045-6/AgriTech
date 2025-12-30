@@ -41,6 +41,8 @@ models/*.pth
 models/*.onnx
 models/*.bin
 models/*.model
+models/*.ckpt
+models/*.safetensors
 
 # Scalers (Can be regenerated)
 scalers/*.pkl
@@ -52,12 +54,18 @@ data/*.csv
 data/*.json
 data/*.geojson
 data/*.txt
+data/*.tif
+data/*.nc
+data/*.h5
 
 # Exported files (Output files)
 exports/
 *.csv
 *.json
 *.geojson
+*.tif
+*.png
+*.jpg
 
 # OS generated files
 .DS_Store
@@ -89,6 +97,7 @@ pids/
 # Build output
 dist/
 build/
+*.egg-info/
 
 # Docker
 Dockerfile.local
@@ -110,14 +119,30 @@ ENV/
 .venv/
 python3.*/  # For specific Python versions
 
-# Large model files that shouldn't be in git
-models/*.pt
-models/*.pth
-scalers/*.pkl
-data/*.csv
-data/*.json
+# Jupyter notebooks
+.ipynb_checkpoints/
 
-# Growth Performance folder
+# Temporary files
+*.tmp
+*.temp
+.tmp/
+.temp/
+
+# ML specific
+checkpoints/
+runs/
+wandb/
+mlruns/
+
+# Security related
+secrets.json
+credentials.json
+*.pem
+*.key
+*.crt
+*.cert
+
+# Growth Performance (your specific folder)
 growth_performance/__pycache__/
 growth_performance/data/*
 growth_performance/exports/
@@ -126,3 +151,65 @@ growth_performance/*.pyo
 growth_performance/*.pyd
 growth_performance/.env
 growth_performance/.env.*
+
+# Backend specific additions
+backend/__pycache__/
+backend/models/__pycache__/
+backend/data_fetcher/__pycache__/
+backend/stage_classifier/__pycache__/
+backend/disease_advice_generator/__pycache__/
+backend/growth_performance/__pycache__/
+backend/nutrient_analysis/__pycache__/
+backend/water_stress_analysis/__pycache__/
+
+# ML model outputs
+backend/models/stage_classification/*.pt
+backend/models/disease_classification/*.pth
+backend/models/pest_risk/*.pth
+backend/models/yield_prediction/*.pt
+
+# Scaler outputs
+backend/scalers/stage/*.pkl
+backend/scalers/disease/*.pkl
+backend/scalers/pest/*.pkl
+
+# Training artifacts
+backend/training_outputs/
+backend/experiments/
+backend/logs/
+
+# Test data
+tests/test_data/
+backend/test_data/
+
+# Cache folders
+.backend_cache/
+.cache/
+
+# Backup files
+*~
+*.bak
+*.backup
+*.old
+
+# Hidden files that might contain sensitive data
+.git-credentials
+.aws/
+.google/
+.firebase/
+
+# Configuration files with potential secrets
+.config/
+.config/*
+config/secrets.json
+config/credentials.json
+config/api-keys.json
+config/private-config.json
+config/.env
+config/.secret
+config/.private
+
+# But keep public config files
+!config/public.json
+!config/settings.json
+!config/default.json
