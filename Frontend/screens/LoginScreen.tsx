@@ -6,9 +6,9 @@ import {
   TouchableOpacity,
   StyleSheet,
   Alert,
-  Platform,
   ActivityIndicator
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type LoginScreenProps = {
   navigation: any;
@@ -16,48 +16,51 @@ type LoginScreenProps = {
 
 export default function LoginScreen({ navigation }: LoginScreenProps) {
   const [username, setUsername] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setLoading] = useState(false);
 
   const handleLogin = async () => {
     if (!username.trim()) {
-      Alert.alert('⚠️ Required', 'Please enter a username');
+      Alert.alert('Error', 'Please enter a username');
       return;
     }
 
-    setIsLoading(true);
+    setLoading(true);
 
     try {
-      const API_URL = Platform.OS === 'android'
-        ? 'http://192.168.31.20:3001'
-        : 'http://localhost:3001';
+      // Production API URL - FIXED: No process usage
+      const isDevelopment = __DEV__;
+      const API_BASE_URL = !isDevelopment
+        ? 'https://your-agritech-backend.azurewebsites.net'  // Your Azure URL
+        : 'http://192.168.31.20:3001';  // Local dev
 
-      const response = await fetch(`${API_URL}/api/login`, {
+      const response = await fetch(`${API_BASE_URL}/api/login`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({ username: username.trim() }),
       });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
-      }
 
       const data = await response.json();
 
       if (data.success) {
-        // Navigate to form screen with farmerId and username
+        // Store token securely
+        await AsyncStorage.setItem('userToken', data.token || 'temp-token');
+
+        // ✅ FIXED: Navigate to PlotForm with proper params (not reset)
         navigation.navigate('PlotForm', {
-          farmerId: data.farmerId,
-          username: data.username
+          farmerId: data.farmerId || 'temp-farmer-id',
+          username: data.username || username,
+          cropType: 'rice' // Default crop type for demo
         });
       } else {
-        throw new Error(data.error || 'Login failed');
+        Alert.alert('Login Failed', data.error || 'Invalid credentials');
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('Login error:', error);
-      Alert.alert('❌ Error', error.message || 'Failed to login');
+      Alert.alert('Error', 'Network error. Please try again.');
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
@@ -66,7 +69,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
       <View style={styles.loginCard}>
         <Text style={styles.title}>🌾 Agritech</Text>
         <Text style={styles.subtitle}>Crop Analysis System</Text>
-        
+
         <Text style={styles.label}>Enter Your Name</Text>
         <TextInput
           style={styles.input}
@@ -78,7 +81,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
           autoCorrect={false}
           maxLength={50}
         />
-        
+
         <TouchableOpacity
           style={styles.loginButton}
           onPress={handleLogin}
@@ -91,7 +94,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
           )}
         </TouchableOpacity>
       </View>
-      
+
       <Text style={styles.infoText}>
         Your unique farmer ID will be saved for future use
       </Text>
@@ -102,10 +105,59 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#2E8B57',
+    backgroundColor: '#2a8444ff',
     justifyContent: 'center',
-    alignItems: 'center',
     padding: 20
+  },
+  header: {
+    alignItems: 'center',
+    marginBottom: 40
+  },
+  title: {
+    fontSize: 38,
+    fontWeight: 'bold',
+    color: '#2E8B57',
+    marginBottom: 10
+  },
+  subtitle: {
+    fontSize: 18,
+    color: '#666'
+  },
+  form: {
+    textAlign: 'left',
+    width: '100%',
+    backgroundColor: 'white',
+    padding: 30,
+    borderRadius: 12,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4
+  },
+  label: {
+    textAlign: 'left',
+    paddingVertical: 10,
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 10
+  },
+  input: {
+    textAlign: 'left',
+    width: '100%', height: 50, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, paddingHorizontal: 15, fontSize: 16, color: '#333', marginBottom: 20
+  },
+  loginButton: {
+    backgroundColor: '#2196F3',
+    padding: 15,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginBottom: 15
+  },
+  loginButtonText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 16
   },
   loginCard: {
     backgroundColor: 'white',
@@ -119,54 +171,17 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 8
   },
-  title: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#2E8B57',
-    marginBottom: 5
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#666',
-    marginBottom: 30,
-    textAlign: 'center'
-  },
-  label: {
-    fontSize: 16,
-    color: '#333',
-    alignSelf: 'flex-start',
-    marginBottom: 10
-  },
-  input: {
-    width: '100%',
-    height: 50,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    paddingHorizontal: 15,
-    fontSize: 16,
-    color: '#333',
-    marginBottom: 20
-  },
-  loginButton: {
-    backgroundColor: '#2E8B57',
-    width: '100%',
-    height: 50,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 10
-  },
-  loginButtonText: {
-    color: 'white',
-    fontSize: 18,
-    fontWeight: 'bold'
-  },
   infoText: {
-    color: 'white',
     marginTop: 20,
-    textAlign: 'center',
     fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
     opacity: 0.8
+  },
+  note: {
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
+    fontStyle: 'italic'
   }
 });

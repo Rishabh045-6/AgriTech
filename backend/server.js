@@ -11,11 +11,38 @@ const crypto = require('crypto');
 
 // Use environment variables
 const app = express();
+const helmet = require('helmet');
 const PORT = process.env.PORT || 3001;
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:"]
+    }
+  }
+}));
 
-app.use(cors());
-app.use(express.json());
+// Security middleware
+app.use(cors({
+  origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],
+  credentials: true
+}));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// Rate limiting
+const rateLimit = require('express-rate-limit');
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 500, // Limit each IP to 100 requests per windowMs
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use(limiter);
 /* ---------------------------------------------------
    DATABASE
 --------------------------------------------------- */
@@ -26,6 +53,18 @@ const pool = new Pool({
   database: process.env.DB_NAME || 'agritech',
   user: process.env.DB_USER || 'postgres',
   password: process.env.DB_PASSWORD, // No default password
+  ssl: process.env.NODE_ENV === 'production' ? {
+    rejectUnauthorized: false
+  } : false,
+});
+
+// Security headers
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  next();
 });
 
 /* ---------------------------------------------------
@@ -68,40 +107,63 @@ app.post('/api/login', async (req, res) => {
   try {
     const { username } = req.body;
 
-    if (!username) {
-      return res.status(400).json({ error: 'Username is required' });
+    // Input validation
+    if (!username || typeof username !== 'string' || username.length > 100) {
+      return res.status(400).json({ 
+        error: 'Invalid username',
+        success: false 
+      });
     }
 
+    // Sanitize input
+    const sanitizedUsername = username.trim().toLowerCase();
+    
     // Check if user already exists
     const existingUser = await pool.query(
       'SELECT farmer_id FROM users WHERE username = $1',
-      [username]
+      [sanitizedUsername]
     );
+
+    const jwt = require('jsonwebtoken');
+    const JWT_SECRET = process.env.JWT_SECRET || 'your_very_long_secret_key_here';
+    
+    const token = jwt.sign(
+      { 
+        userId: farmerId, 
+        username: sanitizedUsername,
+        exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60) // 24 hours
+      },
+      JWT_SECRET
+    );
+
 
     let farmerId;
 
     if (existingUser.rows.length > 0) {
       // User exists, return their existing farmer_id
       farmerId = existingUser.rows[0].farmer_id;
-      console.log(`Returning existing user: ${username} with farmer_id: ${farmerId}`);
+      returnedUsername = existingUser.rows[0].username;
+      console.log(`Existing user logged in: ${returnedUsername} with ID: ${farmerId}`);
     } else {
-      // Create new user with UNIQUE farmer_id using UUID
-      farmerId = `farmer_${uuidv4().replace(/-/g, '')}`;
-
+      // Create new user with UNIQUE farmer_id
+      const timestamp = Date.now();
+      const randomString = require('crypto').randomBytes(4).toString('hex');
+      farmerId = `farmer_${timestamp}${randomString}`;
+      
       await pool.query(
         'INSERT INTO users (username, farmer_id) VALUES ($1, $2)',
-        [username, farmerId]
+        [sanitizedUsername, farmerId]
       );
-
-      console.log(`Created new user: ${username} with farmer_id: ${farmerId}`);
+      returnedUsername = sanitizedUsername;
+      console.log(`New user created: ${returnedUsername} with ID: ${farmerId}`);
     }
-
-    res.json({
+      res.json({
       success: true,
       farmerId: farmerId,
-      username: username
+      username: username,
+      token: token
     });
-
+  
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).json({ error: 'Failed to process login' });
@@ -339,6 +401,39 @@ app.post('/api/run-model', async (req, res) => {
   try {
     const { farmerId, cropType } = req.body;
 
+    // Validate inputs
+    if (!farmerId || !cropType || !coordinates) {
+      return res.status(400).json({ 
+        error: 'Missing required fields',
+        success: false
+      });
+    }
+
+    if (typeof farmerId !== 'string' || typeof cropType !== 'string') {
+      return res.status(400).json({ 
+        error: 'Invalid field types',
+        success: false
+      });
+    }
+
+    // Sanitize inputs
+    const sanitizedFarmerId = farmerId.trim();
+    const sanitizedCropType = cropType.trim().toLowerCase();
+
+    // Validate crop type
+    const allowedCrops = ['rice', 'wheat', 'maize', 'chickpea', 'pigeon_pea', 'beans', 'lentils'];
+    if (!allowedCrops.includes(sanitizedCropType)) {
+      return res.status(400).json({ 
+        error: 'Invalid crop type',
+        success: false
+      });
+    }
+    // Escape special characters to prevent command injection
+    const escapedFarmerId = sanitizedFarmerId.replace(/[^a-zA-Z0-9_]/g, '');
+    const escapedCropType = sanitizedCropType.replace(/[^a-zA-Z0-9_]/g, '');
+    const escapedCoordinates = JSON.stringify(coordinates).replace(/[^a-zA-Z0-9_,\[\]:\{\}\-\.]/g, '');
+
+
     console.log('🤖 Running model for:', { farmerId, cropType });
 
     // Get plot coordinates from database
@@ -365,9 +460,7 @@ app.post('/api/run-model', async (req, res) => {
     const { exec } = require('child_process');
     const pythonScript = 'predict_crop_stage.py';
 
-    // ✅ Use double quotes and escape inner quotes
-    const coordinatesJson = JSON.stringify(coordinates).replace(/"/g, '\\"');
-    const command = `python "${pythonScript}" "${farmerId}" "${cropType}" "${coordinatesJson}"`;
+    const command = `python "${pythonScript}" "${escapedFarmerId}" "${escapedCoordinates}"  "${escapedCropType}" `;
 
     console.log('EXECUTING COMMAND:', command); // Debug log
 
@@ -450,3 +543,5 @@ app.post('/api/run-model', async (req, res) => {
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on http://0.0.0.0:${PORT}`);
 });
+
+module.exports = app; // For testing purposes

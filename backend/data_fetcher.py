@@ -28,8 +28,8 @@ def load_sentinel_credentials():
         
         # Load up to 6 client pairs from environment
         for i in range(1, 7):
-            client_id = os.getenv(f'SENTINEL_CLIENT_ID_{i}')
-            client_secret = os.getenv(f'SENTINEL_CLIENT_SECRET_{i}')
+            client_id = os.getenv(f'SENTINEL_CLIENT_{i}_ID')
+            client_secret = os.getenv(f'SENTINEL_CLIENT_{i}_SECRET')
             
             if client_id and client_secret:
                 clients.append((client_id, client_secret))
