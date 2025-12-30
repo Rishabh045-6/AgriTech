@@ -26,7 +26,6 @@ desktop.ini
 ############################
 # SUBPROJECTS
 ############################
-backend/
 
 # Allow subproject gitignores
 !backend/.gitignore
