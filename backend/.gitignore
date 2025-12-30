@@ -1,12 +1,12 @@
 ############################
-# ENVIRONMENT VARIABLES
+# ENVIRONMENT
 ############################
 .env
 .env.*
 !.env.example
 
 ############################
-# NODE / JAVASCRIPT
+# NODE
 ############################
 node_modules/
 npm-debug.log*
@@ -15,78 +15,45 @@ yarn-error.log*
 package-lock.json
 
 ############################
-# PYTHON
+# EXPO
 ############################
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-env/
-venv/
-ENV/
-.venv/
-.python-version
-pip-log.txt
-pip-delete-this-directory.txt
-.tox/
-.pytest_cache/
-.coverage
-.coverage.*
-.cache/
+.expo/
+.expo-shared/
+.bundler/
+.bundle/
+web-build/
 
 ############################
-# MACHINE LEARNING (LARGE)
+# REACT NATIVE BUILDS
 ############################
-models/**
-scalers/**
-checkpoints/
-runs/
-wandb/
-mlruns/
+android/build/
+android/.gradle/
+android/app/build/
+android/local.properties
+
+ios/build/
+ios/Pods/
+ios/Podfile.lock
+ios/*.xcworkspace
+ios/*.xcuserstate
+ios/.xcode.env.local
 
 ############################
-# DATA & EXPORTS
+# TESTING
 ############################
-exports/
-data/
-growth_performance/data/
-growth_performance/exports/
+__tests__/coverage/
+coverage/
+
+############################
+# TYPESCRIPT
+############################
+*.tsbuildinfo
 
 ############################
 # LOGS & RUNTIME
 ############################
-logs/
 *.log
-pids/
-*.pid
-*.seed
-*.pid.lock
-
-############################
-# BUILD / DIST
-############################
-dist/
-build/
-*.egg-info/
-
-############################
-# DOCKER (LOCAL / SECRETS)
-############################
-Dockerfile.local
-Dockerfile.prod
-docker-compose.local.yml
-docker-compose.prod.yml
-
-############################
-# SECURITY / SECRETS
-############################
-secrets.json
-credentials.json
-*.pem
-*.key
-*.crt
-*.cert
+hs_err_pid*
 
 ############################
 # IDE
@@ -98,7 +65,7 @@ credentials.json
 *~
 
 ############################
-# OS FILES
+# OS
 ############################
 .DS_Store
 Thumbs.db
@@ -110,14 +77,16 @@ desktop.ini
 ############################
 .tmp/
 .temp/
-*.tmp
-*.temp
-.backend_cache/
+.cache/
 
 ############################
-# KEEP THESE FILES
+# KEEP IMPORTANT FILES
 ############################
-!Dockerfile
-!docker-compose.yml
-!config/
-!config/*.js
+!app.json
+!App.tsx
+!index.js
+!babel.config.js
+!metro.config.js
+!tsconfig.json
+!package.json
+!README.md
