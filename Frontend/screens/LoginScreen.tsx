@@ -174,13 +174,13 @@ const styles = StyleSheet.create({
   infoText: {
     marginTop: 20,
     fontSize: 14,
-    color: '#666',
+    color: '#000000ff',
     textAlign: 'center',
     opacity: 0.8
   },
   note: {
     fontSize: 12,
-    color: '#666',
+    color: '#2499a6ff',
     textAlign: 'center',
     fontStyle: 'italic'
   }
