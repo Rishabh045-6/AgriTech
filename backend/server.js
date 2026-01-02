@@ -48,14 +48,14 @@ app.use(limiter);
 --------------------------------------------------- */
 // Database connection using environment variables
 const pool = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: process.env.DB_PORT || 5432,
-  database: process.env.DB_NAME || 'agritech',
-  user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD, // No default password
-  ssl: process.env.NODE_ENV === 'production' ? {
-    rejectUnauthorized: false
-  } : false,
+  host: process.env.PGHOST,
+  port: Number(process.env.PGPORT),
+  database: process.env.PGDATABASE,
+  user: process.env.PGUSER,
+  password: process.env.PGPASSWORD,
+  ssl: process.env.NODE_ENV === 'production'
+    ? { rejectUnauthorized: false }
+    : false,
 });
 
 // Security headers
@@ -126,15 +126,6 @@ app.post('/api/login', async (req, res) => {
 
     const jwt = require('jsonwebtoken');
     const JWT_SECRET = process.env.JWT_SECRET || 'your_very_long_secret_key_here';
-    
-    const token = jwt.sign(
-      { 
-        userId: farmerId, 
-        username: sanitizedUsername,
-        exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60) // 24 hours
-      },
-      JWT_SECRET
-    );
 
 
     let farmerId;
@@ -157,7 +148,16 @@ app.post('/api/login', async (req, res) => {
       returnedUsername = sanitizedUsername;
       console.log(`New user created: ${returnedUsername} with ID: ${farmerId}`);
     }
-      res.json({
+
+    const token = jwt.sign(
+      { 
+        userId: farmerId, 
+        username: sanitizedUsername,
+        exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60) // 24 hours
+      },
+      JWT_SECRET
+    );
+    res.json({
       success: true,
       farmerId: farmerId,
       username: username,
@@ -308,6 +308,16 @@ app.post('/api/analyze-crop', async (req, res) => {
   }
 });
 
+app.get('/health', async (req, res) => {
+  try {
+    await pool.query('SELECT 1');
+    res.status(200).json({ status: 'ok' });
+  } catch {
+    res.status(500).json({ status: 'db-error' });
+  }
+});
+
+
 /* ---------------------------------------------------
    GET LATEST PLOT
 --------------------------------------------------- */
@@ -402,7 +412,7 @@ app.post('/api/run-model', async (req, res) => {
     const { farmerId, cropType } = req.body;
 
     // Validate inputs
-    if (!farmerId || !cropType || !coordinates) {
+    if (!farmerId || !cropType ) {
       return res.status(400).json({ 
         error: 'Missing required fields',
         success: false

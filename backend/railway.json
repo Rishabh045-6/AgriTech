@@ -1,0 +1,10 @@
+{
+  "build": {
+    "builder": "NIXPACKS"
+  },
+  "deploy": {
+    "numInstances": 1,
+    "startCommand": "npm start",
+    "healthcheck": "/health"
+  }
+}
