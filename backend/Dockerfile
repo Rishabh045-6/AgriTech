@@ -30,13 +30,14 @@ RUN npm ci --omit=dev
 # -------------------------
 # Install Python dependencies
 # -------------------------
-COPY requirements.txt .
+COPY backend/requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
+
 
 # -------------------------
 # Copy app source
 # -------------------------
-COPY . .
+COPY backend/. .
 
 # -------------------------
 # Expose port (Koyeb uses this)
