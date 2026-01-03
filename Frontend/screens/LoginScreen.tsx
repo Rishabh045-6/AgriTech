@@ -28,10 +28,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
 
     try {
       // Production API URL - FIXED: No process usage
-      const isDevelopment = __DEV__;
-      const API_BASE_URL = !isDevelopment
-        ? 'https://database-personal012-6ab6673d.koyeb.app'  // Your Azure URL
-        : 'http://192.168.31.20:3001';  // Local dev
+      const API_BASE_URL = 'https://database-personal012-6ab6673d.koyeb.app';
 
       const response = await fetch(`${API_BASE_URL}/api/login`, {
         method: 'POST',
