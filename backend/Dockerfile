@@ -1,7 +1,7 @@
 FROM node:18-bookworm
 
 # -------------------------
-# Install system dependencies
+# System dependencies (Python + geo + build)
 # -------------------------
 RUN apt-get update && apt-get install -y \
     python3 \
@@ -13,34 +13,34 @@ RUN apt-get update && apt-get install -y \
     libgeos-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Make python available as "python"
+# Make `python` command available
 RUN ln -s /usr/bin/python3 /usr/bin/python
 
 # -------------------------
-# Set working directory
+# App directory
 # -------------------------
 WORKDIR /app
 
 # -------------------------
-# Install Node dependencies
+# Node backend dependencies ONLY
+# (CRITICAL: backend path)
 # -------------------------
-COPY package.json package-lock.json ./
+COPY backend/package.json backend/package-lock.json ./
 RUN npm ci --omit=dev
 
 # -------------------------
-# Install Python dependencies
+# Python dependencies
 # -------------------------
 COPY backend/requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
 
-
 # -------------------------
-# Copy app source
+# Backend source code
 # -------------------------
 COPY backend/. .
 
 # -------------------------
-# Expose port (Koyeb uses this)
+# Expose port
 # -------------------------
 EXPOSE 8080
 
