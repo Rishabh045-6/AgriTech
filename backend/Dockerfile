@@ -1,16 +1,16 @@
 FROM node:18-alpine
 
-RUN apk add --no-cache python3 py3-pip
-
 WORKDIR /app
 
-COPY package.json package-lock.json ./
+# Copy ONLY backend package files
+COPY backend/package.json backend/package-lock.json ./
+
+# Install backend dependencies only
 RUN npm ci --omit=dev
 
-COPY . .
+# Copy ONLY backend source code
+COPY backend/. .
 
-RUN addgroup -S app && adduser -S app -G app
-USER app
+EXPOSE 8080
 
-EXPOSE 3001
 CMD ["node", "server.js"]
