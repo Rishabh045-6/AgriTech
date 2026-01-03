@@ -205,11 +205,15 @@ app.post('/api/run-model', async (req, res) => {
     const { farmerId, cropType } = req.body;
 
     if (!farmerId || !cropType) {
-      return res.status(400).json({ error: 'Missing fields' });
+      return res.status(400).json({
+        success: false,
+        error: "Missing farmerId or cropType"
+      });
     }
 
+    // Fetch latest plot
     const { rows } = await pool.query(
-      `SELECT plot_geom
+      `SELECT ST_AsGeoJSON(plot_geom) AS geojson
        FROM plots
        WHERE farmer_id = $1
        ORDER BY created_at DESC
@@ -218,26 +222,67 @@ app.post('/api/run-model', async (req, res) => {
     );
 
     if (!rows.length) {
-      return res.status(404).json({ error: 'No plot found' });
+      return res.status(404).json({
+        success: false,
+        error: "No plot found for this farmer"
+      });
     }
 
-    const coords = rows[0].plot_geom;
+    const geojson = JSON.parse(rows[0].geojson);
+    const coordinates = geojson.coordinates[0].map(([lng, lat]) => ({
+      latitude: lat,
+      longitude: lng
+    }));
 
-    const command = `python predict_crop_stage.py '${farmerId}' '${JSON.stringify(coords)}' '${cropType}'`;
+    if (!coordinates.length) {
+      return res.status(400).json({
+        success: false,
+        error: "Plot has no coordinates"
+      });
+    }
 
-    exec(command, (error, stdout, stderr) => {
-      if (error) {
-        console.error(stderr);
-        return res.status(500).json({ error: 'Model failed' });
+    // 🔐 SAFE: Base64 encode coordinates
+    const coordsB64 = Buffer
+      .from(JSON.stringify(coordinates))
+      .toString("base64");
+
+    const safeFarmerId = farmerId.replace(/[^a-zA-Z0-9_]/g, "");
+    const safeCropType = cropType.replace(/[^a-zA-Z0-9_]/g, "");
+
+    const command = `python predict_crop_stage.py "${safeFarmerId}" "${safeCropType}" "${coordsB64}"`;
+
+    console.log("🚀 Running model:", command);
+
+    exec(command, { cwd: __dirname, maxBuffer: 1024 * 1024 * 10 }, (err, stdout, stderr) => {
+      if (err) {
+        console.error("❌ Python error:", stderr || err.message);
+        return res.status(500).json({
+          success: false,
+          error: "Python model execution failed"
+        });
       }
-      res.json(JSON.parse(stdout));
+
+      try {
+        const result = JSON.parse(stdout.trim());
+        return res.json(result);
+      } catch (e) {
+        console.error("❌ Invalid JSON from Python:", stdout);
+        return res.status(500).json({
+          success: false,
+          error: "Invalid response from model"
+        });
+      }
     });
 
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Run model failed' });
+    console.error("❌ Backend error:", err);
+    res.status(500).json({
+      success: false,
+      error: "Internal server error"
+    });
   }
 });
+
 
 /* ---------------------------------------------------
    START SERVER

@@ -8,6 +8,7 @@ import warnings
 from contextlib import contextmanager
 import io
 from datetime import datetime
+import base64
 
 # 🚨 HARD SILENCE MODE
 os.environ["PYTHONWARNINGS"] = "ignore"
@@ -642,37 +643,39 @@ def predict_crop_analysis(farmer_id, crop_type, coordinates):
         }))
         print(f"Error in predict_crop_analysis: {str(e)}", file=sys.stderr)
         sys.exit(1)
-
 if __name__ == "__main__":
     if len(sys.argv) != 4:
-        error_msg = f'Usage: python predict_crop_stage.py <farmer_id> <crop_type> <coordinates_json>. Got {len(sys.argv)} args'
-        print(json.dumps({
-            'error': error_msg,
-            'success': False
-        }))
-        print(error_msg, file=sys.stderr)
+        error_msg = (
+            "Usage: python predict_crop_stage.py "
+            "<farmer_id> <crop_type> <coordinates_base64>"
+        )
+        print(json.dumps({"success": False, "error": error_msg}))
         sys.exit(1)
-    
+
     farmer_id = sys.argv[1]
     crop_type = sys.argv[2]
-    coordinates_json = sys.argv[3]
-    
+    coordinates_b64 = sys.argv[3]
+
     try:
+        # 🔐 Decode Base64 safely
+        coordinates_json = base64.b64decode(coordinates_b64).decode("utf-8")
         coordinates = json.loads(coordinates_json)
+
+        if not isinstance(coordinates, list) or not coordinates:
+            raise ValueError("Coordinates list is empty or invalid")
+
         predict_crop_analysis(farmer_id, crop_type, coordinates)
+
     except json.JSONDecodeError as e:
-        error_msg = f'Failed to parse coordinates JSON: {str(e)}'
         print(json.dumps({
-            'error': error_msg,
-            'success': False
+            "success": False,
+            "error": f"Failed to parse coordinates JSON: {str(e)}"
         }))
-        print(error_msg, file=sys.stderr)
         sys.exit(1)
+
     except Exception as e:
-        error_msg = f'Unexpected error: {str(e)}'
         print(json.dumps({
-            'error': error_msg,
-            'success': False
+            "success": False,
+            "error": f"Unexpected error: {str(e)}"
         }))
-        print(error_msg, file=sys.stderr)
         sys.exit(1)
