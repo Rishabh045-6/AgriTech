@@ -30,7 +30,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
       // Production API URL - FIXED: No process usage
       const isDevelopment = __DEV__;
       const API_BASE_URL = !isDevelopment
-        ? 'https://your-agritech-backend.azurewebsites.net'  // Your Azure URL
+        ? 'https://database-personal012-6ab6673d.koyeb.app'  // Your Azure URL
         : 'http://192.168.31.20:3001';  // Local dev
 
       const response = await fetch(`${API_BASE_URL}/api/login`, {

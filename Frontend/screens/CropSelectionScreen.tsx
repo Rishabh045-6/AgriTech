@@ -43,7 +43,7 @@ export default function CropSelectionScreen({ route, navigation }: CropSelection
     setLoading(true); // ✅ Start loading
 
     try {
-      const API_URL = 'http://192.168.31.20:3001';
+      const API_URL = 'https://database-personal012-6ab6673d.koyeb.app';
 
       const response = await fetch(`${API_URL}/api/run-model`, {
         method: 'POST',

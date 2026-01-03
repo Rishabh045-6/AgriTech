@@ -106,7 +106,7 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
 
     try {
       const API_URL = Platform.OS === 'android'
-        ? 'http://192.168.31.20:3001'
+        ? 'https://database-personal012-6ab6673d.koyeb.app'
         : 'http://localhost:3001';
 
       // Get unique coordinates

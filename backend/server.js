@@ -10,7 +10,9 @@ const jwt = require('jsonwebtoken');
 const { exec } = require('child_process');
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 8080;
+
+app.set("trust proxy", 1);
 
 /* ---------------------------------------------------
    MIDDLEWARE
@@ -240,6 +242,12 @@ app.post('/api/run-model', async (req, res) => {
 /* ---------------------------------------------------
    START SERVER
 --------------------------------------------------- */
+app.use((req, res, next) => {
+  console.log(req.ip);
+  next();
+});
+
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
