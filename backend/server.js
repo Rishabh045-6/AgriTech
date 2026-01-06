@@ -225,58 +225,105 @@ app.get('/api/latest-plot', async (req, res) => {
 /* ---------------------------------------------------
    RUN MODEL (PostGIS → Python)
 --------------------------------------------------- */
+/* ---------------------------------------------------
+   RUN MODEL (JSONB ONLY — NO POSTGIS)
+--------------------------------------------------- */
 app.post('/api/run-model', async (req, res) => {
   try {
     const { farmerId, cropType } = req.body;
+
     if (!farmerId || !cropType) {
-      return res.status(400).json({ error: 'Missing farmerId or cropType' });
+      return res.status(400).json({
+        success: false,
+        error: 'Missing farmerId or cropType'
+      });
     }
 
+    // 1️⃣ Fetch latest plot (JSONB)
     const { rows } = await pool.query(
-      `SELECT ST_AsGeoJSON(plot_geom) AS geojson
-       FROM plots
-       WHERE farmer_id = $1
-       ORDER BY created_at DESC
-       LIMIT 1`,
+      `
+      SELECT plot_geom
+      FROM plots
+      WHERE farmer_id = $1
+      ORDER BY created_at DESC
+      LIMIT 1
+      `,
       [farmerId]
     );
 
     if (!rows.length) {
-      return res.status(404).json({ error: 'No plot found' });
+      return res.status(404).json({
+        success: false,
+        error: 'No plot found for this farmer'
+      });
     }
 
-    const geojson = JSON.parse(rows[0].geojson);
-    const coordinates = geojson.coordinates[0].map(([lng, lat]) => ({
-      latitude: lat,
-      longitude: lng
-    }));
+    const coordinates = rows[0].plot_geom;
 
-    const coordsB64 = Buffer
+    // 2️⃣ Validate coordinates
+    if (
+      !Array.isArray(coordinates) ||
+      coordinates.length < 3 ||
+      !coordinates.every(
+        p =>
+          typeof p.latitude === 'number' &&
+          typeof p.longitude === 'number'
+      )
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid plot coordinates format'
+      });
+    }
+
+    // 3️⃣ Encode coordinates safely (BASE64)
+    const coordsBase64 = Buffer
       .from(JSON.stringify(coordinates))
       .toString('base64');
 
     const safeFarmerId = farmerId.replace(/[^a-zA-Z0-9_]/g, '');
     const safeCropType = cropType.replace(/[^a-zA-Z0-9_]/g, '');
 
-    const command =
-      `python predict_crop_stage.py "${safeFarmerId}" "${safeCropType}" "${coordsB64}"`;
+    const command = `python predict_crop_stage.py "${safeFarmerId}" "${safeCropType}" "${coordsBase64}"`;
 
-    exec(command, { cwd: __dirname, maxBuffer: 1024 * 1024 * 10 },
+    console.log('🚀 Running model:', command);
+
+    // 4️⃣ Execute Python safely
+    exec(
+      command,
+      {
+        cwd: __dirname,
+        maxBuffer: 1024 * 1024 * 20 // 20MB buffer for large JSON
+      },
       (err, stdout, stderr) => {
         if (err) {
-          console.error(stderr || err);
-          return res.status(500).json({ error: 'Python execution failed' });
+          console.error('❌ Python execution error:', stderr || err.message);
+          return res.status(500).json({
+            success: false,
+            error: 'Python model execution failed'
+          });
         }
+
         try {
-          res.json(JSON.parse(stdout.trim()));
-        } catch {
-          res.status(500).json({ error: 'Invalid Python response' });
+          const output = stdout.trim();
+          const result = JSON.parse(output);
+          return res.json(result);
+        } catch (parseErr) {
+          console.error('❌ Invalid JSON from Python:', stdout);
+          return res.status(500).json({
+            success: false,
+            error: 'Invalid response from model'
+          });
         }
       }
     );
+
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Internal error' });
+    console.error('❌ Backend error:', err);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error'
+    });
   }
 });
 
