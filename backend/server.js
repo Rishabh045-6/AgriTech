@@ -12,7 +12,10 @@ const { exec } = require('child_process');
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-app.set("trust proxy", 1);
+/* ---------------------------------------------------
+   TRUST PROXY (REQUIRED for Railway/Koyeb)
+--------------------------------------------------- */
+app.set('trust proxy', 1);
 
 /* ---------------------------------------------------
    MIDDLEWARE
@@ -31,7 +34,7 @@ app.use(rateLimit({
 }));
 
 /* ---------------------------------------------------
-   DATABASE (Railway-compatible)
+   DATABASE (PostGIS)
 --------------------------------------------------- */
 const pool = new Pool({
   host: process.env.PGHOST,
@@ -43,27 +46,30 @@ const pool = new Pool({
 });
 
 /* ---------------------------------------------------
-   INIT TABLES
+   WAIT FOR DB
 --------------------------------------------------- */
-
 async function waitForDb(retries = 10, delay = 3000) {
   for (let i = 0; i < retries; i++) {
     try {
       await pool.query('SELECT 1');
       console.log('✅ Database connected');
       return;
-    } catch (err) {
-      console.error(`⏳ DB not ready (attempt ${i + 1}/${retries})`);
-      await new Promise(res => setTimeout(res, delay));
+    } catch {
+      console.log(`⏳ Waiting for DB (${i + 1}/${retries})`);
+      await new Promise(r => setTimeout(r, delay));
     }
   }
-  console.error('❌ Database never became ready');
+  console.error('❌ Database not reachable');
   process.exit(1);
 }
 
-
+/* ---------------------------------------------------
+   INIT DATABASE (PostGIS)
+--------------------------------------------------- */
 async function initDb() {
   try {
+    await pool.query(`CREATE EXTENSION IF NOT EXISTS postgis;`);
+
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
@@ -77,22 +83,25 @@ async function initDb() {
       CREATE TABLE IF NOT EXISTS plots (
         id SERIAL PRIMARY KEY,
         farmer_id VARCHAR(100) NOT NULL,
-        plot_geom JSONB NOT NULL,
+        plot_geom GEOMETRY(POLYGON, 4326) NOT NULL,
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
     `);
 
-    console.log('✅ Database initialized');
+    console.log('✅ Database initialized with PostGIS');
   } catch (err) {
-    console.error('❌ Database init failed:', err);
+    console.error('❌ DB init failed:', err);
     process.exit(1);
   }
 }
 
-initDb();
+(async () => {
+  await waitForDb();
+  await initDb();
+})();
 
 /* ---------------------------------------------------
-   HEALTH CHECK (Railway REQUIRED)
+   HEALTH CHECK
 --------------------------------------------------- */
 app.get('/health', async (_req, res) => {
   try {
@@ -145,20 +154,33 @@ app.post('/api/login', async (req, res) => {
 });
 
 /* ---------------------------------------------------
-   SAVE PLOT (JSONB)
+   SAVE PLOT (PostGIS)
 --------------------------------------------------- */
 app.post('/api/save-plot', async (req, res) => {
   try {
     const { farmerId, plotCoordinates } = req.body;
 
     if (!farmerId || !Array.isArray(plotCoordinates) || plotCoordinates.length < 3) {
-      return res.status(400).json({ error: 'Invalid input' });
+      return res.status(400).json({ error: 'Invalid plot coordinates' });
     }
+
+    // Close polygon
+    const coords = [...plotCoordinates];
+    if (
+      coords[0].latitude !== coords.at(-1).latitude ||
+      coords[0].longitude !== coords.at(-1).longitude
+    ) {
+      coords.push(coords[0]);
+    }
+
+    const wkt = `POLYGON((${coords
+      .map(p => `${p.longitude} ${p.latitude}`)
+      .join(', ')}))`;
 
     await pool.query(
       `INSERT INTO plots (farmer_id, plot_geom)
-       VALUES ($1, $2)`,
-      [farmerId, JSON.stringify(plotCoordinates)]
+       VALUES ($1, ST_GeomFromText($2, 4326))`,
+      [farmerId, wkt]
     );
 
     res.json({ success: true });
@@ -176,7 +198,10 @@ app.get('/api/latest-plot', async (req, res) => {
     const { farmerId } = req.query;
 
     const { rows } = await pool.query(
-      `SELECT id, plot_geom, created_at
+      `SELECT
+         id,
+         ST_AsGeoJSON(plot_geom) AS geojson,
+         created_at
        FROM plots
        WHERE farmer_id = $1
        ORDER BY created_at DESC
@@ -188,7 +213,7 @@ app.get('/api/latest-plot', async (req, res) => {
 
     res.json({
       plotId: rows[0].id,
-      coordinates: rows[0].plot_geom,
+      geojson: JSON.parse(rows[0].geojson),
       createdAt: rows[0].created_at
     });
   } catch (err) {
@@ -198,20 +223,15 @@ app.get('/api/latest-plot', async (req, res) => {
 });
 
 /* ---------------------------------------------------
-   RUN MODEL
+   RUN MODEL (PostGIS → Python)
 --------------------------------------------------- */
 app.post('/api/run-model', async (req, res) => {
   try {
     const { farmerId, cropType } = req.body;
-
     if (!farmerId || !cropType) {
-      return res.status(400).json({
-        success: false,
-        error: "Missing farmerId or cropType"
-      });
+      return res.status(400).json({ error: 'Missing farmerId or cropType' });
     }
 
-    // Fetch latest plot
     const { rows } = await pool.query(
       `SELECT ST_AsGeoJSON(plot_geom) AS geojson
        FROM plots
@@ -222,10 +242,7 @@ app.post('/api/run-model', async (req, res) => {
     );
 
     if (!rows.length) {
-      return res.status(404).json({
-        success: false,
-        error: "No plot found for this farmer"
-      });
+      return res.status(404).json({ error: 'No plot found' });
     }
 
     const geojson = JSON.parse(rows[0].geojson);
@@ -234,65 +251,38 @@ app.post('/api/run-model', async (req, res) => {
       longitude: lng
     }));
 
-    if (!coordinates.length) {
-      return res.status(400).json({
-        success: false,
-        error: "Plot has no coordinates"
-      });
-    }
-
-    // 🔐 SAFE: Base64 encode coordinates
     const coordsB64 = Buffer
       .from(JSON.stringify(coordinates))
-      .toString("base64");
+      .toString('base64');
 
-    const safeFarmerId = farmerId.replace(/[^a-zA-Z0-9_]/g, "");
-    const safeCropType = cropType.replace(/[^a-zA-Z0-9_]/g, "");
+    const safeFarmerId = farmerId.replace(/[^a-zA-Z0-9_]/g, '');
+    const safeCropType = cropType.replace(/[^a-zA-Z0-9_]/g, '');
 
-    const command = `python predict_crop_stage.py "${safeFarmerId}" "${safeCropType}" "${coordsB64}"`;
+    const command =
+      `python predict_crop_stage.py "${safeFarmerId}" "${safeCropType}" "${coordsB64}"`;
 
-    console.log("🚀 Running model:", command);
-
-    exec(command, { cwd: __dirname, maxBuffer: 1024 * 1024 * 10 }, (err, stdout, stderr) => {
-      if (err) {
-        console.error("❌ Python error:", stderr || err.message);
-        return res.status(500).json({
-          success: false,
-          error: "Python model execution failed"
-        });
+    exec(command, { cwd: __dirname, maxBuffer: 1024 * 1024 * 10 },
+      (err, stdout, stderr) => {
+        if (err) {
+          console.error(stderr || err);
+          return res.status(500).json({ error: 'Python execution failed' });
+        }
+        try {
+          res.json(JSON.parse(stdout.trim()));
+        } catch {
+          res.status(500).json({ error: 'Invalid Python response' });
+        }
       }
-
-      try {
-        const result = JSON.parse(stdout.trim());
-        return res.json(result);
-      } catch (e) {
-        console.error("❌ Invalid JSON from Python:", stdout);
-        return res.status(500).json({
-          success: false,
-          error: "Invalid response from model"
-        });
-      }
-    });
-
+    );
   } catch (err) {
-    console.error("❌ Backend error:", err);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error"
-    });
+    console.error(err);
+    res.status(500).json({ error: 'Internal error' });
   }
 });
-
 
 /* ---------------------------------------------------
    START SERVER
 --------------------------------------------------- */
-app.use((req, res, next) => {
-  console.log(req.ip);
-  next();
-});
-
-
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
