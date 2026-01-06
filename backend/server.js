@@ -64,7 +64,7 @@ async function waitForDb(retries = 10, delay = 3000) {
 }
 
 /* ---------------------------------------------------
-   INIT DATABASE (PostGIS)
+   INIT DATABASE (PostGIS) - FIXED: Handle existing schema
 --------------------------------------------------- */
 async function initDb() {
   try {
@@ -79,17 +79,40 @@ async function initDb() {
       );
     `);
 
-    // ✅ FIXED: Use JSONB column for coordinates, not geometry
+    // ✅ FIXED: Check if plots table exists and handle schema changes
+    const tableExists = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'plots'
+      );
+    `);
+
+    if (tableExists.rows[0].exists) {
+      // Check if coordinates column exists
+      const columnExists = await pool.query(`
+        SELECT EXISTS (
+          SELECT FROM information_schema.columns 
+          WHERE table_name = 'plots' AND column_name = 'coordinates'
+        );
+      `);
+
+      if (!columnExists.rows[0].exists) {
+        // Drop old plots table and create new one with JSONB
+        await pool.query('DROP TABLE plots;');
+      }
+    }
+
+    // Create plots table with JSONB column
     await pool.query(`
       CREATE TABLE IF NOT EXISTS plots (
         id SERIAL PRIMARY KEY,
         farmer_id VARCHAR(100) NOT NULL,
-        coordinates JSONB NOT NULL,  -- ✅ FIXED: JSONB for coordinates
+        coordinates JSONB NOT NULL,  -- ✅ JSONB for coordinates
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
     `);
 
-    console.log('✅ Database initialized with PostGIS');
+    console.log('✅ Database initialized with JSONB coordinates');
   } catch (err) {
     console.error('❌ DB init failed:', err);
     process.exit(1);
@@ -165,7 +188,6 @@ app.post('/api/save-plot', async (req, res) => {
       return res.status(400).json({ error: 'Invalid plot coordinates' });
     }
 
-    // ✅ FIXED: Store coordinates as JSONB (not geometry)
     await pool.query(
       `INSERT INTO plots (farmer_id, coordinates)
        VALUES ($1, $2::jsonb)`,
@@ -189,7 +211,7 @@ app.get('/api/latest-plot', async (req, res) => {
     const { rows } = await pool.query(
       `SELECT
          id,
-         coordinates,  -- ✅ FIXED: Return JSONB coordinates
+         coordinates,
          created_at
        FROM plots
        WHERE farmer_id = $1
@@ -202,7 +224,7 @@ app.get('/api/latest-plot', async (req, res) => {
 
     res.json({
       plotId: rows[0].id,
-      coordinates: rows[0].coordinates,  // ✅ FIXED: Return coordinates
+      coordinates: rows[0].coordinates,
       createdAt: rows[0].created_at
     });
   } catch (err) {
