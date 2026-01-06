@@ -79,11 +79,12 @@ async function initDb() {
       );
     `);
 
+    // ✅ FIXED: Use JSONB column for coordinates, not geometry
     await pool.query(`
       CREATE TABLE IF NOT EXISTS plots (
         id SERIAL PRIMARY KEY,
         farmer_id VARCHAR(100) NOT NULL,
-        plot_geom GEOMETRY(POLYGON, 4326) NOT NULL,
+        coordinates JSONB NOT NULL,  -- ✅ FIXED: JSONB for coordinates
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
     `);
@@ -154,7 +155,7 @@ app.post('/api/login', async (req, res) => {
 });
 
 /* ---------------------------------------------------
-   SAVE PLOT (PostGIS)
+   SAVE PLOT (JSONB ONLY)
 --------------------------------------------------- */
 app.post('/api/save-plot', async (req, res) => {
   try {
@@ -164,23 +165,11 @@ app.post('/api/save-plot', async (req, res) => {
       return res.status(400).json({ error: 'Invalid plot coordinates' });
     }
 
-    // Close polygon
-    const coords = [...plotCoordinates];
-    if (
-      coords[0].latitude !== coords.at(-1).latitude ||
-      coords[0].longitude !== coords.at(-1).longitude
-    ) {
-      coords.push(coords[0]);
-    }
-
-    const wkt = `POLYGON((${coords
-      .map(p => `${p.longitude} ${p.latitude}`)
-      .join(', ')}))`;
-
+    // ✅ FIXED: Store coordinates as JSONB (not geometry)
     await pool.query(
-      `INSERT INTO plots (farmer_id, plot_geom)
-       VALUES ($1, ST_GeomFromText($2, 4326))`,
-      [farmerId, wkt]
+      `INSERT INTO plots (farmer_id, coordinates)
+       VALUES ($1, $2::jsonb)`,
+      [farmerId, JSON.stringify(plotCoordinates)]
     );
 
     res.json({ success: true });
@@ -191,7 +180,7 @@ app.post('/api/save-plot', async (req, res) => {
 });
 
 /* ---------------------------------------------------
-   GET LATEST PLOT
+   GET LATEST PLOT (JSONB)
 --------------------------------------------------- */
 app.get('/api/latest-plot', async (req, res) => {
   try {
@@ -200,7 +189,7 @@ app.get('/api/latest-plot', async (req, res) => {
     const { rows } = await pool.query(
       `SELECT
          id,
-         ST_AsGeoJSON(plot_geom) AS geojson,
+         coordinates,  -- ✅ FIXED: Return JSONB coordinates
          created_at
        FROM plots
        WHERE farmer_id = $1
@@ -213,7 +202,7 @@ app.get('/api/latest-plot', async (req, res) => {
 
     res.json({
       plotId: rows[0].id,
-      geojson: JSON.parse(rows[0].geojson),
+      coordinates: rows[0].coordinates,  // ✅ FIXED: Return coordinates
       createdAt: rows[0].created_at
     });
   } catch (err) {
@@ -223,10 +212,7 @@ app.get('/api/latest-plot', async (req, res) => {
 });
 
 /* ---------------------------------------------------
-   RUN MODEL (PostGIS → Python)
---------------------------------------------------- */
-/* ---------------------------------------------------
-   RUN MODEL (JSONB ONLY — NO POSTGIS)
+   RUN MODEL (JSONB ONLY)
 --------------------------------------------------- */
 app.post('/api/run-model', async (req, res) => {
   try {
@@ -242,7 +228,7 @@ app.post('/api/run-model', async (req, res) => {
     // 1️⃣ Fetch latest plot (JSONB)
     const { rows } = await pool.query(
       `
-      SELECT plot_geom
+      SELECT coordinates
       FROM plots
       WHERE farmer_id = $1
       ORDER BY created_at DESC
@@ -258,7 +244,7 @@ app.post('/api/run-model', async (req, res) => {
       });
     }
 
-    const coordinates = rows[0].plot_geom;
+    const coordinates = rows[0].coordinates;
 
     // 2️⃣ Validate coordinates
     if (
