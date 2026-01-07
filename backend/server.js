@@ -20,7 +20,20 @@ app.set('trust proxy', 1);
 /* ---------------------------------------------------
    MIDDLEWARE
 --------------------------------------------------- */
-app.use(helmet());
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        connectSrc: [
+          "'self'",
+          "https://database-personal012-6ab6673d.koyeb.app"
+        ],
+      },
+    },
+  })
+);
+
 app.use(cors({
   origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],
   credentials: true

@@ -177,6 +177,9 @@ def serialize_dataframe(df):
     
     return serialized_records
 
+print("📁 models dir:", os.listdir(MODELS_DIR), flush=True)
+
+
 def predict_crop_analysis(farmer_id, crop_type, coordinates):
     """Main function to predict crop stage, disease, pest risk, AND growth performance - FIXED: No eval usage"""
     try:
