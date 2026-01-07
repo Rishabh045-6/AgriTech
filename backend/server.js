@@ -237,6 +237,7 @@ app.get('/api/latest-plot', async (req, res) => {
    RUN MODEL (JSONB ONLY)
 --------------------------------------------------- */
 app.post('/api/run-model', async (req, res) => {
+  console.log("🟡 About to execute python model");
   try {
     const { farmerId, cropType } = req.body;
 
@@ -311,6 +312,9 @@ app.post('/api/run-model', async (req, res) => {
             error: 'Python model execution failed'
           });
         }
+        console.log("🟢 Python stdout:", stdout);
+        console.log("🔴 Python stderr:", stderr);
+
 
         try {
           const output = stdout.trim();

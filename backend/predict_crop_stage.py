@@ -10,6 +10,8 @@ import io
 from datetime import datetime
 import base64
 
+print("🟢 Python script started", flush=True)
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODELS_DIR = os.path.join(BASE_DIR, "models")
 
@@ -66,6 +68,7 @@ def load_resnet_disease_model(crop_type):
         return None
 
 def load_model(crop_type, model_type="stage"):
+    print("🟢 About to load models", flush=True)
     cache_map = {
         "stage": STAGE_MODEL_CACHE,
         "disease": DISEASE_MODEL_CACHE,
