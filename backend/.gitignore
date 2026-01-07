@@ -120,3 +120,7 @@ desktop.ini
 !docker-compose.yml
 !config/
 !config/*.js
+
+# DO NOT ignore models
+!backend/models/**
+!backend/scalers/**

@@ -95,84 +95,65 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
     setPoints([]);
   }, []);
 
-  const handleConfirm = useCallback(async () => {
+  // ✅ FIXED: Handle analysis with proper coordinates format
+  const handleConfirm = async () => {
     if (points.length < 3) {
-      Alert.alert('⚠️ Not enough points', 'Draw at least 3 points to create a plot');
+      Alert.alert('Error', 'Please draw a valid plot with at least 3 points');
       return;
     }
 
-    setIsLoading(true);
-    setLoadingMessage('Loading results using satellite data...');
-
     try {
-      const API_URL = Platform.OS === 'android'
-        ? 'https://database-personal012-6ab6673d.koyeb.app'
-        : 'http://localhost:3001';
-
-      // Get unique coordinates
-      const uniqueCoordinates = points.map(p => ({
-        latitude: p.latitude,
-        longitude: p.longitude
+      setIsLoading(true);
+      
+      // ✅ FIXED: Use 'points' state instead of undefined 'polygonPoints'
+      const coordinates = points.map(point => ({
+        longitude: point.longitude,
+        latitude: point.latitude
       }));
-
-      // Close polygon if not already closed
-      if (uniqueCoordinates.length >= 3) {
-        const firstPoint = uniqueCoordinates[0];
-        const lastPoint = uniqueCoordinates[uniqueCoordinates.length - 1];
-        
-        if (firstPoint.latitude !== lastPoint.latitude || firstPoint.longitude !== lastPoint.longitude) {
-          uniqueCoordinates.push(firstPoint);
-        }
+      
+      // Validate coordinates
+      if (!coordinates || !Array.isArray(coordinates) || coordinates.length < 3) {
+        Alert.alert('Error', 'Please draw a valid plot with at least 3 points');
+        return;
       }
+      
+      // ✅ FIXED: Use correct API_BASE_URL (define it properly)
+      const API_BASE_URL = __DEV__ 
+        ? 'http://192.168.31.20:3001' 
+        : 'https://your-koyeb-app.koyeb.app'; // Replace with your actual Koyeb URL
 
-      // Save plot to database
-      const saveResponse = await fetch(`${API_URL}/api/save-plot`, {
+      // Send to backend
+      const response = await fetch(`${API_BASE_URL}/api/run-model`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({
-          farmerId,
-          plotCoordinates: uniqueCoordinates.map(p => [p.latitude, p.longitude]),
-          cropType: selectedCrop
-        }),
-      });
-
-      if (!saveResponse.ok) {
-        const errorText = await saveResponse.text();
-        throw new Error(`HTTP ${saveResponse.status}: ${errorText}`);
-      }
-
-      // Get model results from backend
-      const response = await fetch(`${API_URL}/api/run-model`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          farmerId,
+          farmerId: farmerId,
           cropType: selectedCrop,
-          plotCoordinates: uniqueCoordinates
+          coordinates: coordinates  // ✅ FIXED: Send array of {longitude, latitude} objects
         }),
       });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        navigation.navigate('Results', {
+          farmerId: farmerId,
+          cropType: selectedCrop,
+          results: data
+        });
+      } else {
+        Alert.alert('Error', data.error || 'Failed to run model');
       }
-
-      const results = await response.json();
-
-      navigation.navigate('Results', {
-        farmerId,
-        cropType: selectedCrop,
-        plotCoordinates: uniqueCoordinates,
-        modelResults: results
-      });
-
-    } catch (error: any) {
+      
+    } catch (error) {
       console.error('Model error:', error);
-      Alert.alert('❌ Error', 'Failed to analyze crop');
+      Alert.alert('Error', 'Failed to run model');
     } finally {
       setIsLoading(false);
     }
-  }, [points, farmerId, selectedCrop, navigation]);
+  };
 
   // Optimized region change handler
   const handleRegionChange = useCallback((newRegion: any) => {
@@ -215,7 +196,6 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
         zoomEnabled={true}
         pitchEnabled={false}
         rotateEnabled={false}
-        // Remove unnecessary props that cause re-renders
       >
         {points.map((point, index) => (
           <Marker
@@ -245,7 +225,10 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={styles.confirmButton}
+          style={[
+            styles.confirmButton,
+            points.length < 3 ? styles.confirmButtonDisabled : null
+          ]}
           onPress={handleConfirm}
           disabled={points.length < 3}
         >
@@ -330,7 +313,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   confirmButtonDisabled: {
-    backgroundColor: '#8BC34A',
+    backgroundColor: '#cccccc',
   },
   confirmButtonText: {
     color: 'white',
