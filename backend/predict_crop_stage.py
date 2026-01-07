@@ -10,6 +10,15 @@ import io
 from datetime import datetime
 import base64
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODELS_DIR = os.path.join(BASE_DIR, "models")
+
+STAGE_MODEL_CACHE = {}
+DISEASE_MODEL_CACHE = {}
+PEST_MODEL_CACHE = {}
+RESNET_DISEASE_CACHE = {}
+
+
 # 🚨 HARD SILENCE MODE
 os.environ["PYTHONWARNINGS"] = "ignore"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
@@ -28,9 +37,15 @@ def suppress_stdout():
         sys.stdout = saved_stdout
 
 def load_resnet_disease_model(crop_type):
-    """Load ResNet disease classification model - FIXED: No eval usage"""
-    crop_key = crop_type.replace("_", "")  # handles pigeon_pea → pigeonpea
-    model_path = f"models/{crop_key}_disease_resnet50.pth"
+    crop_key = crop_type.replace("_", "")
+    
+    if crop_key in RESNET_DISEASE_CACHE:
+        return RESNET_DISEASE_CACHE[crop_key]
+
+    model_path = os.path.join(
+        MODELS_DIR,
+        f"{crop_key}_disease_resnet50.pth"
+    )
 
     if not os.path.exists(model_path):
         print(f"⚠️ Disease model not found: {model_path}", file=sys.stderr)
@@ -38,121 +53,94 @@ def load_resnet_disease_model(crop_type):
 
     try:
         from models.disease_classification.model_loader import DiseaseModelLoader
-        disease_model_loader = DiseaseModelLoader()
-        return disease_model_loader.load_model(crop_type, model_path)
+        loader = DiseaseModelLoader()
+        model_info = loader.load_model(crop_type, model_path)
+
+        RESNET_DISEASE_CACHE[crop_key] = model_info
+        print(f"✓ Loaded ResNet disease model: {model_path}", file=sys.stderr)
+
+        return model_info
+
     except Exception as e:
-        print(f"⚠️ Error loading disease model: {str(e)}", file=sys.stderr)
+        print(f"⚠️ Error loading disease model: {e}", file=sys.stderr)
         return None
 
 def load_model(crop_type, model_type="stage"):
-    """Load Transformer model for specific crop - FIXED: No eval usage"""
+    cache_map = {
+        "stage": STAGE_MODEL_CACHE,
+        "disease": DISEASE_MODEL_CACHE,
+        "pest": PEST_MODEL_CACHE
+    }
+
+    if crop_type in cache_map[model_type]:
+        return cache_map[model_type][crop_type]
+
     if model_type == "stage":
-        model_path = f"models/{crop_type}_model.pt"
+        model_path = os.path.join(MODELS_DIR, f"{crop_type}_model.pt")
     elif model_type == "disease":
-        model_path = f"models/{crop_type}_transformer_disease_model.pth"
-    else:  # pest
-        model_path = f"models/{crop_type}_transformer_pest_model.pth"
-    
+        model_path = os.path.join(MODELS_DIR, f"{crop_type}_transformer_disease_model.pth")
+    else:
+        model_path = os.path.join(MODELS_DIR, f"{crop_type}_transformer_pest_model.pth")
+
     try:
-        checkpoint = torch.load(model_path, map_location='cpu', weights_only=False)
-        
+        checkpoint = torch.load(model_path, map_location="cpu")
+
         if model_type == "stage":
-            # Load stage classification model
             from models.transformers import CropTransformer
-            
-            # Handle different checkpoint formats safely
-            if 'model_state_dict' in checkpoint:
-                state_dict = checkpoint['model_state_dict']
-                num_features = checkpoint.get('num_features', 19)
-                window_size = checkpoint.get('window_size', 7)
-                num_classes = checkpoint.get('num_classes', 3)
-            else:
-                # Direct state_dict format
-                state_dict = checkpoint
-                num_features = 19  # Default
-                window_size = 7   # Default
-                num_classes = 3   # Default
-            
+
+            state_dict = checkpoint.get("model_state_dict", checkpoint)
             model = CropTransformer(
-                num_features=num_features,
-                window_size=window_size,
+                num_features=checkpoint.get("num_features", 19),
+                window_size=checkpoint.get("window_size", 7),
                 d_model=64,
                 nhead=4,
                 num_layers=2,
-                num_classes=num_classes,
+                num_classes=checkpoint.get("num_classes", 3),
                 dropout=0.1
             )
-            
             model.load_state_dict(state_dict)
-            
+
         elif model_type == "disease":
-            # Load disease detection model
             from disease_model import TransformerClassifier
-            
-            # Handle different checkpoint formats for disease model
-            if 'model_state_dict' in checkpoint:
-                state_dict = checkpoint['model_state_dict']
-                num_features = checkpoint.get('num_features', 19)
-                seq_len = checkpoint.get('seq_len', 7)
-            else:
-                # Direct state_dict format
-                state_dict = checkpoint
-                num_features = 19  # Default
-                seq_len = 7       # Default
-            
+
+            state_dict = checkpoint.get("model_state_dict", checkpoint)
             model = TransformerClassifier(
-                input_dim=num_features,
-                seq_len=seq_len,
+                input_dim=checkpoint.get("num_features", 19),
+                seq_len=checkpoint.get("seq_len", 7),
                 d_model=64,
                 nhead=4,
                 num_layers=3
             )
-            
-            # Load state dict with strict=False to handle size mismatches
             model.load_state_dict(state_dict, strict=False)
-            
-        else:  # pest
-            # Load pest risk model
+
+        else:
             from pest_model import TransformerClassifier
-            
-            # Handle different checkpoint formats for pest model
-            if 'model_state_dict' in checkpoint:
-                state_dict = checkpoint['model_state_dict']
-                num_features = checkpoint.get('num_features', 19)
-                seq_len = checkpoint.get('seq_len', 7)
-                num_classes = checkpoint.get('num_classes', 3)
-            else:
-                # Direct state_dict format
-                state_dict = checkpoint
-                num_features = 19  # Default
-                seq_len = 7       # Default
-                num_classes = 3   # Default
-            
+
+            state_dict = checkpoint.get("model_state_dict", checkpoint)
             model = TransformerClassifier(
-                input_dim=num_features,
-                seq_len=seq_len,
-                num_classes=num_classes,
+                input_dim=checkpoint.get("num_features", 19),
+                seq_len=checkpoint.get("seq_len", 7),
+                num_classes=checkpoint.get("num_classes", 3),
                 d_model=64,
                 nhead=4,
                 num_layers=3
             )
-            
-            # Load state dict with strict=False to handle size mismatches
             model.load_state_dict(state_dict, strict=False)
-        
+
         model.eval()
-        
+
+        cache_map[model_type][crop_type] = (model, checkpoint)
         print(f"✓ Loaded {model_type} model: {model_path}", file=sys.stderr)
+
         return model, checkpoint
-        
+
     except Exception as e:
-        error_msg = f"Error loading {crop_type} {model_type} model: {str(e)}"
         print(json.dumps({
-            'error': error_msg,
-            'success': False
+            "success": False,
+            "error": f"Error loading {crop_type} {model_type} model: {e}"
         }))
-        print(error_msg, file=sys.stderr)
         sys.exit(1)
+
 
 def serialize_dataframe(df):
     """Convert DataFrame to JSON-serializable format - FIXED: No eval usage"""
