@@ -251,6 +251,10 @@ app.get('/api/latest-plot', async (req, res) => {
 --------------------------------------------------- */
 app.post('/api/run-model', async (req, res) => {
   console.log("🟡 About to execute python model");
+  res.json({
+    success: true,
+    status: "processing"
+  });
   try {
     const { farmerId, cropType } = req.body;
 
