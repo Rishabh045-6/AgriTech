@@ -29,6 +29,7 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
     longitudeDelta: 0.01,
   });
   
+  
   const [points, setPoints] = useState<{ latitude: number; longitude: number }[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('Analyzing crop data...');
@@ -106,7 +107,7 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
 
     try {
       const API_URL = Platform.OS === 'android'
-        ? 'http://192.168.31.20:3001'
+        ? 'http://10.67.8.16:3001'
         : 'http://localhost:3001';
 
       // Get unique coordinates
@@ -148,7 +149,6 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
         body: JSON.stringify({
           farmerId,
           cropType: selectedCrop,
-          plotCoordinates: uniqueCoordinates
         }),
       });
 

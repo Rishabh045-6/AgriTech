@@ -32,18 +32,20 @@ const EMPTY_VEGETATION_INDICES: Record<string, string> = {
   SIPI: 'N/A',
 };
 
-
 export default function StageResultScreen({ route, navigation }: StageResultScreenProps) {
   const { results, cropType } = route.params;
 
+  // Extract data from results (matches growth_performance.py structure)
   const {
     stage,
-    growthPerformance,
+    scores,
+    report,
     ndviTrend,
     recommendations,
-    ndvi_stats: ndviStats,
+    data_summary: dataSummary,
     window_df,
     yield: yieldData,
+    waterStress,
     nutrientDeficiency
   } = results;
 
@@ -88,108 +90,61 @@ export default function StageResultScreen({ route, navigation }: StageResultScre
       {yieldData && <YieldCard yieldData={yieldData} />}
 
       {/* Growth Performance */}
-      {growthPerformance && (
+      {scores && report && (
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Growth Performance</Text>
           <View style={styles.growthContainer}>
-            <Text style={styles.growthScore}>Overall Score: {growthPerformance.report.overall_score.toFixed(1)}</Text>
-            <Text style={styles.growthStatus}>Status: {growthPerformance.report.status}</Text>
-            <Text style={styles.growthRecommendation}>Recommendation: {growthPerformance.report.recommendation}</Text>
+            <Text style={styles.growthScore}>Overall Score: {scores?.overall_score?.toFixed(1) ?? 'N/A'}</Text>
+            <Text style={styles.growthStatus}>Status: {report?.status ?? 'N/A'}</Text>
+            <Text style={styles.growthRecommendation}>Recommendation: {report?.recommendation ?? 'N/A'}</Text>
           </View>
 
           <View style={styles.growthMetricsContainer}>
             <GrowthMetricCard
               name="Growth Rate"
-              score={growthPerformance.scores.growth_rate}
-              status={growthPerformance.healthMetrics.growth_rate.status}
+              score={scores?.growth_rate ?? 0}
+              status={report?.status ?? 'Unknown'}
             />
             <GrowthMetricCard
               name="Biomass"
-              score={growthPerformance.scores.biomass}
-              status={growthPerformance.healthMetrics.biomass.status}
+              score={scores?.biomass ?? 0}
+              status={report?.status ?? 'Unknown'}
             />
             <GrowthMetricCard
               name="Stability"
-              score={growthPerformance.scores.stability}
-              status={growthPerformance.healthMetrics.stability.status}
+              score={scores?.stability ?? 0}
+              status={report?.status ?? 'Unknown'}
             />
           </View>
         </View>
       )}
 
-      {/* Vegetation Indices */}
-      {Object.keys(vegetationIndices).length > 0 && (
-        <VegetationIndicesCard vegetationIndices={vegetationIndices} />
-      )}
-
-      {/* Stage Probabilities */}
-      {stage && <StageProbabilitiesCard stage={stage} />}
-
-      {/* Water + Biomass */}
-      {growthPerformance && (
-        <>
-          <WaterStressCard
-            waterStressScore={growthPerformance.scores.stability}
-          />
-          <BiomassCard biomassScore={growthPerformance.scores.biomass} />
-        </>
-      )}
-
-      {/* Stage Prediction */}
-      {stage && (
+      {/* Water Stress Analysis */}
+      {waterStress && (
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Growth Stage Prediction</Text>
-          <View style={styles.predictionContainer}>
-            <Text style={styles.stageText}>{stage.prediction}</Text>
-            <Text style={styles.confidenceOverlayText}>
-              {(stage.confidence * 100).toFixed(1)}% confidence
+          <Text style={styles.sectionTitle}>💧 Water Stress Analysis</Text>
+          <View style={styles.waterStressContainer}>
+            <Text style={styles.waterStressScore}>
+              Stress Score: {waterStress?.score?.toFixed(1) ?? 'N/A'}
             </Text>
-          </View>
-        </View>
-      )}
-
-      {/* NDVI Trend */}
-      {formattedNdviTrend.length > 0 && (
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>NDVI Trend Over Time</Text>
-          <View style={styles.trendChart}>
-            {formattedNdviTrend.map((point: any, index: number) => (
-              <View key={index} style={styles.trendPoint}>
-                <Text style={styles.trendDate}>{point.date}</Text>
-                <View style={[styles.trendBar, { height: point.ndvi * 100 }]} />
-                <Text style={styles.trendValue}>{point.ndvi.toFixed(2)}</Text>
+            <Text style={styles.waterStressStatus}>
+              Status: {waterStress?.stress_level ?? 'N/A'}
+            </Text>
+            {waterStress?.recommendations && waterStress.recommendations.length > 0 && (
+              <View style={styles.waterStressRecommendations}>
+                <Text style={styles.waterStressLabel}>Recommendations:</Text>
+                {waterStress.recommendations.map((rec: string, idx: number) => (
+                  <Text key={idx} style={styles.waterStressAdvice}>
+                    • {rec}
+                  </Text>
+                ))}
               </View>
-            ))}
+            )}
           </View>
         </View>
       )}
 
-      {/* NDVI Statistics */}
-      {ndviStats && (
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>NDVI Statistics</Text>
-          <View style={styles.statsContainer}>
-            <StatItem label="Mean" value={ndviStats.mean.toFixed(3)} />
-            <StatItem label="Min" value={ndviStats.min.toFixed(3)} />
-            <StatItem label="Max" value={ndviStats.max.toFixed(3)} />
-            <StatItem label="Trend" value={ndviStats.trend.toFixed(3)} />
-          </View>
-        </View>
-      )}
-
-      {/* Stage Recommendations */}
-      {recommendations?.stage && (
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>🌱 Stage Recommendations</Text>
-          {recommendations.stage.map((rec: string, index: number) => (
-            <View key={`stage-${index}`} style={styles.recommendationItem}>
-              <Text style={styles.recommendationText}>• {rec}</Text>
-            </View>
-          ))}
-        </View>
-      )}
-
-      {/* Nutrient Deficiency Section */}
+      {/* Nutrient Deficiency Analysis */}
       {nutrientDeficiency && (
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>🧪 Nutrient Deficiency Analysis</Text>
@@ -277,6 +232,68 @@ export default function StageResultScreen({ route, navigation }: StageResultScre
               </Text>
             </View>
           )}
+        </View>
+      )}
+
+      {/* Vegetation Indices */}
+      {Object.keys(vegetationIndices).length > 0 && (
+        <VegetationIndicesCard vegetationIndices={vegetationIndices} />
+      )}
+
+      {/* Stage Probabilities */}
+      {stage && <StageProbabilitiesCard stage={stage} />}
+
+      {/* Stage Prediction */}
+      {stage && (
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Growth Stage Prediction</Text>
+          <View style={styles.predictionContainer}>
+            <Text style={styles.stageText}>{stage?.prediction ?? 'N/A'}</Text>
+            <Text style={styles.confidenceOverlayText}>
+              {(stage?.confidence * 100)?.toFixed(1) ?? '0'}% confidence
+            </Text>
+          </View>
+        </View>
+      )}
+
+      {/* NDVI Trend */}
+      {formattedNdviTrend.length > 0 && (
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>NDVI Trend Over Time</Text>
+          <View style={styles.trendChart}>
+            {formattedNdviTrend.map((point: any, index: number) => (
+              <View key={index} style={styles.trendPoint}>
+                <Text style={styles.trendDate}>{point.date}</Text>
+                <View style={[styles.trendBar, { height: point.ndvi * 100 }]} />
+                <Text style={styles.trendValue}>{point.ndvi.toFixed(2)}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
+
+      {/* NDVI Statistics */}
+      {dataSummary && (
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>NDVI Statistics</Text>
+          <View style={styles.statsContainer}>
+            <StatItem label="Mean" value={dataSummary?.mean_ndvi?.toFixed(3) ?? 'N/A'} />
+            <StatItem label="Min" value={dataSummary?.min_ndvi?.toFixed(3) ?? 'N/A'} />
+            <StatItem label="Max" value={dataSummary?.max_ndvi?.toFixed(3) ?? 'N/A'} />
+            <StatItem label="Std Dev" value={dataSummary?.std_ndvi?.toFixed(3) ?? 'N/A'} />
+          </View>
+        </View>
+      )}
+
+      {/* Stage Recommendations */}
+      {recommendations?.stage && (
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>🌱 Stage Recommendations</Text>
+          {recommendations.stage.map((rec: string, index: number) => (
+            <View key={`stage-${index}`} style={styles.recommendationItem}>
+              <Text style={styles.recommendationText}>• {rec}</Text>
+            </View>
+          ))}
         </View>
       )}
 
@@ -369,24 +386,6 @@ const YieldCard = ({ yieldData }: any) => (
     </Text>
     <Text style={styles.yieldEstimate}>
       Estimated: {yieldData?.estimated_yield_kg_ha?.toFixed(0) ?? 'N/A'} kg/ha
-    </Text>
-  </View>
-);
-
-const WaterStressCard = ({ waterStressScore }: any) => (
-  <View style={styles.card}>
-    <Text style={styles.sectionTitle}>💧 Water Stress</Text>
-    <Text style={styles.waterStressScore}>
-      Score: {waterStressScore.toFixed(1)}
-    </Text>
-  </View>
-);
-
-const BiomassCard = ({ biomassScore }: any) => (
-  <View style={styles.card}>
-    <Text style={styles.sectionTitle}>🌱 Biomass</Text>
-    <Text style={styles.biomassScore}>
-      Score: {biomassScore.toFixed(1)}
     </Text>
   </View>
 );
@@ -528,30 +527,46 @@ const styles = StyleSheet.create({
     color: '#2E8B57',
     marginBottom: 4,
   },
-
   yieldCategory: {
     fontSize: 14,
     color: '#666',
     marginBottom: 4,
   },
-
   yieldEstimate: {
     fontSize: 14,
     color: '#666',
   },
-
+  waterStressContainer: {
+    paddingVertical: 10
+  },
   waterStressScore: {
     fontSize: 16,
     fontWeight: 'bold',
     color: '#1976D2',
+    marginBottom: 5
   },
-
-  biomassScore: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#388E3C',
+  waterStressStatus: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 5
   },
-
+  waterStressAdvice: {
+    fontSize: 14,
+    color: '#666',
+    fontStyle: 'italic',
+    marginTop: 5
+  },
+  waterStressLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginTop: 10,
+    marginBottom: 5
+  },
+  waterStressRecommendations: {
+    marginTop: 10,
+    paddingLeft: 10
+  },
   diseaseProbText: {
     fontSize: 16,
     color: '#666'

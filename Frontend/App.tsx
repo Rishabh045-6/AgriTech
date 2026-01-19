@@ -30,7 +30,7 @@ const isDevelopment = __DEV__; // React Native's built-in flag
 
 const API_BASE_URL = !isDevelopment
   ? 'https://your-agritech-backend.azurewebsites.net'  // Your Azure App Service URL
-  : 'http://192.168.31.20:3001';  // Local dev (Android)
+  : 'http://10.67.8.16:3001';  // Local dev (Android)
 
 // Global configuration
 (globalThis as any).API_BASE_URL = API_BASE_URL;

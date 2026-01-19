@@ -244,7 +244,7 @@ export default function ResultsScreen({ route, navigation }: any) {
     try {
       const API_URL =
         Platform.OS === 'android'
-          ? 'http://192.168.31.20:3001'
+          ? 'http://10.67.8.16:3001'
           : 'http://localhost:3001';
 
       const response = await fetch(`${API_URL}/api/run-model`, {
