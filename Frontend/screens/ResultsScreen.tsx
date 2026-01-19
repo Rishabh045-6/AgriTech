@@ -242,10 +242,10 @@ export default function ResultsScreen({ route, navigation }: any) {
 
   const fetchResults = async () => {
     try {
-      const API_URL =
-        Platform.OS === 'android'
-          ? 'https://database-personal012-6ab6673d.koyeb.app'
-          : 'http://localhost:3001';
+      const isDevelopment = __DEV__;
+      const API_URL = !isDevelopment
+        ? 'https://your-agritech-backend.azurewebsites.net'  // Your Azure URL
+        : 'http://10.67.9.194:3001';  // Local dev
 
       const response = await fetch(`${API_URL}/api/run-model`, {
         method: 'POST',

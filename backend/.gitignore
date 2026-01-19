@@ -121,6 +121,3 @@ desktop.ini
 !config/
 !config/*.js
 
-# DO NOT ignore models
-!backend/models/**
-!backend/scalers/**
