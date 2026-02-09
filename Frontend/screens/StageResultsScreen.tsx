@@ -1,15 +1,12 @@
 // screens/StageResultScreen.tsx
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
-  Dimensions,
-  Alert,
-  Platform,
-  ActivityIndicator
+  Dimensions
 } from 'react-native';
 
 type StageResultScreenProps = {

@@ -1,13 +1,18 @@
 // screens/PestResultScreen.tsx
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
-  Dimensions
+  Platform
 } from 'react-native';
+
+const API_URL =
+  Platform.OS === 'android'
+    ? 'http://10.67.1.211:3001'
+    : 'http://localhost:3001';
 
 type PestResultScreenProps = {
   route: any;
@@ -15,8 +20,66 @@ type PestResultScreenProps = {
 };
 
 export default function PestResultScreen({ route, navigation }: PestResultScreenProps) {
-  const { results, cropType } = route.params;
+  const { results, cropType, recommendations: passedRecommendations, recommendationDetails: passedDetails, plotId, farmerId } = route.params;
   const { pest, recommendations, penalties } = results || {};
+  
+  const [fetchedRecommendations, setFetchedRecommendations] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+
+  // Fetch recommendations from backend if not passed
+  const fetchRecommendations = useCallback(async () => {
+    if (!plotId || !farmerId || !results) return;
+    
+    try {
+      setLoading(true);
+      
+      const aggregatedFeatures = {
+        disease_detection: {
+          risk_level: results.disease?.risk_level || "unknown",
+          disease_prob: results.disease?.probability || 0
+        },
+        pest_risk: {
+          risk_level: results.pest?.risk_level || "unknown",
+          confidence: results.pest?.confidence || 0
+        },
+        water_stress: {
+          stress: results.waterStress?.current_status?.moisture_status || "unknown",
+          score: results.waterStress?.current_status?.water_stress || 0
+        },
+        stage_classifier: {
+          stage: results.stage?.prediction || "unknown"
+        }
+      };
+
+      const response = await fetch(`${API_URL}/api/generate-recommendations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          plotId,
+          farmerId,
+          plotFeatures: aggregatedFeatures,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setFetchedRecommendations(data.recommendations);
+      }
+    } catch (err) {
+      console.error('Error fetching recommendations:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [plotId, farmerId, results]);
+
+  useEffect(() => {
+    if (!passedRecommendations && plotId && farmerId) {
+      fetchRecommendations();
+    }
+  }, [passedRecommendations, plotId, farmerId, fetchRecommendations]);
+  
+  // Use passed recommendations first, then fetched, then fallback to old format
+  const finalRecommendations = passedRecommendations || fetchedRecommendations || recommendations;
 
   // Get pest assessment text based on risk level and probabilities
   const getPestAssessment = () => {
@@ -24,7 +87,7 @@ export default function PestResultScreen({ route, navigation }: PestResultScreen
     
     const riskLevel = pest.risk_level || 'Low';
     const confidence = pest.confidence || 0;
-    const probs = pest.probabilities || { Low: 0.7, Medium: 0.2, High: 0.1 };
+    // probabilities are available on `pest.probabilities` if needed
     
     if (riskLevel === 'High') {
       return `HIGH PEST PRESSURE DETECTED: Significant pest infestation risk (${(confidence * 100).toFixed(1)}% confidence). Immediate action recommended. Multiple pest species likely present.`;
@@ -37,8 +100,16 @@ export default function PestResultScreen({ route, navigation }: PestResultScreen
 
   // Get pest recommendations based on risk level
   const getPestRecommendations = () => {
-    if (recommendations?.pest && recommendations.pest.length > 0) {
-      return recommendations.pest;
+    // Check for backend recommendations (converted to array)
+    if (finalRecommendations?.pest_risk && typeof finalRecommendations.pest_risk === 'string') {
+      return finalRecommendations.pest_risk
+        .split('\n\n')
+        .filter((rec: string) => rec.trim().length > 0)
+        .map((rec: string) => rec.trim());
+    }
+    
+    if (finalRecommendations?.pest && finalRecommendations.pest.length > 0) {
+      return finalRecommendations.pest;
     }
     
     // Fallback recommendations based on risk level
@@ -267,7 +338,7 @@ const ConfidenceMeter = ({ label, value, color }: { label: string, value: number
   </View>
 );
 
-const { width } = Dimensions.get('window');
+// width not used in this screen
 
 const styles = StyleSheet.create({
   container: {

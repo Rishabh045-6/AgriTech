@@ -19,54 +19,12 @@ type MapScreenProps = {
   navigation: any;
 };
 
+
+
 export default function MapScreen({ route, navigation }: MapScreenProps) {
-  const { farmerId, username, selectedCrop } = route.params || {};
-  
-  const [region, setRegion] = useState({
-    latitude: 26.163054622, // Default to your area
-    longitude: 91.738211922,
-    latitudeDelta: 0.01,
-    longitudeDelta: 0.01,
-  });
-  
-  
-  const [points, setPoints] = useState<{ latitude: number; longitude: number }[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [loadingMessage, setLoadingMessage] = useState('Analyzing crop data...');
-  const mapRef = useRef<MapView>(null);
 
-  useEffect(() => {
-    if (!farmerId || !selectedCrop) {
-      setTimeout(() => {
-        navigation.navigate('PlotForm');
-      }, 0);
-      return;
-    }
-    
-    requestLocationPermission();
-  }, [farmerId, selectedCrop, navigation]);
-
-  const requestLocationPermission = useCallback(async () => {
-    if (Platform.OS === 'android') {
-      try {
-        const granted = await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-          {
-            title: 'Location Permission',
-            message: 'This app needs access to location to help with crop analysis.',
-            buttonNeutral: 'Ask Me Later',
-            buttonNegative: 'Cancel',
-            buttonPositive: 'OK',
-          }
-        );
-        if (granted === PermissionsAndroid.RESULTS.GRANTED) {
-          getCurrentLocation();
-        }
-      } catch (err) {
-        console.warn(err);
-      }
-    }
-  }, []);
+  
+  const { farmerId, selectedCrop } = route.params || {};
 
   const getCurrentLocation = useCallback(() => {
     Geolocation.getCurrentPosition(
@@ -85,6 +43,65 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
     );
   }, []);
+
+  const requestLocationPermission = useCallback(async () => {
+    if (Platform.OS === 'android') {
+      try {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+          {
+            title: 'Location Permission',
+            message: 'This app needs access to location to help with crop analysis.',
+            buttonNeutral: 'Ask Me Later',
+            buttonNegative: 'Cancel',
+            buttonPositive: 'OK',
+          }
+        );
+
+        if (granted === PermissionsAndroid.RESULTS.GRANTED) {
+          getCurrentLocation();
+        }
+      } catch (err) {
+        console.warn(err);
+      }
+    } else {
+      // iOS
+      getCurrentLocation();
+    }
+  }, [getCurrentLocation]);
+
+  useEffect(() => {
+    if (!farmerId || !selectedCrop) {
+      navigation.navigate('PlotForm');
+      return;
+    }
+
+    requestLocationPermission();
+  }, [farmerId, selectedCrop, navigation, requestLocationPermission]);
+
+  const [region, setRegion] = useState({
+    latitude: 26.163054622, // Default to your area
+    longitude: 91.738211922,
+    latitudeDelta: 0.01,
+    longitudeDelta: 0.01,
+  });
+
+
+  const [points, setPoints] = useState<{ latitude: number; longitude: number }[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState('Analyzing crop data...');
+  const mapRef = useRef<MapView>(null);
+
+  useEffect(() => {
+    if (!farmerId || !selectedCrop) {
+      setTimeout(() => {
+        navigation.navigate('PlotForm');
+      }, 0);
+      return;
+    }
+
+    requestLocationPermission();
+  }, [farmerId, selectedCrop, navigation, requestLocationPermission]);
 
   // Optimized map press handler
   const handleMapPress = useCallback((e: any) => {
@@ -107,7 +124,7 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
 
     try {
       const API_URL = Platform.OS === 'android'
-        ? 'http://10.67.8.16:3001'
+        ? 'http://10.67.1.211:3001'
         : 'http://localhost:3001';
 
       // Get unique coordinates
@@ -120,7 +137,7 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
       if (uniqueCoordinates.length >= 3) {
         const firstPoint = uniqueCoordinates[0];
         const lastPoint = uniqueCoordinates[uniqueCoordinates.length - 1];
-        
+
         if (firstPoint.latitude !== lastPoint.latitude || firstPoint.longitude !== lastPoint.longitude) {
           uniqueCoordinates.push(firstPoint);
         }
@@ -180,7 +197,7 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
     setRegion(newRegion);
   }, []);
 
-  const { width, height } = Dimensions.get('window');
+  const { height } = Dimensions.get('window');
   const mapHeight = height * 0.8;
 
   if (!farmerId || !selectedCrop) {
@@ -215,7 +232,7 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
         zoomEnabled={true}
         pitchEnabled={false}
         rotateEnabled={false}
-        // Remove unnecessary props that cause re-renders
+      // Remove unnecessary props that cause re-renders
       >
         {points.map((point, index) => (
           <Marker
@@ -224,7 +241,7 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
             pinColor="red"
           />
         ))}
-        
+
         {points.length >= 3 && (
           <Polygon
             coordinates={points}

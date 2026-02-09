@@ -1,16 +1,19 @@
 // screens/DiseaseResultScreen.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
-  Dimensions,
-  Alert,
-  Platform,
-  ActivityIndicator
+  ActivityIndicator,
+  Platform
 } from 'react-native';
+
+const API_URL =
+  Platform.OS === 'android'
+    ? 'http://10.67.1.211:3001'
+    : 'http://localhost:3001';
 
 type DiseaseResultScreenProps = {
   route: any;
@@ -18,21 +21,77 @@ type DiseaseResultScreenProps = {
 };
 
 export default function DiseaseResultScreen({ route, navigation }: DiseaseResultScreenProps) {
-  const { results, cropType } = route.params;
+  const { results, cropType, recommendations: passedRecommendations, recommendationDetails: passedDetails, plotId, farmerId } = route.params;
 
   const { 
     disease, 
     recommendations, 
     penalties, 
     diseaseAdvice, 
-    window_df, 
+    
     ndvi_stats, 
     ndviTrend 
   } = results || {};
 
   // State for loading and error handling
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [loading, _setLoading] = useState(false);
+  const [error, _setError] = useState<string | null>(null);
+  const [fetchedRecommendations, setFetchedRecommendations] = useState<any>(null);
+
+  // Fetch recommendations from backend if not passed
+  const fetchRecommendations = useCallback(async () => {
+    if (!plotId || !farmerId || !results) return;
+    
+    try {
+      _setLoading(true);
+      
+      const aggregatedFeatures = {
+        disease_detection: {
+          risk_level: results.disease?.risk_level || "unknown",
+          disease_prob: results.disease?.probability || 0
+        },
+        pest_risk: {
+          risk_level: results.pest?.risk_level || "unknown",
+          confidence: results.pest?.confidence || 0
+        },
+        water_stress: {
+          stress: results.waterStress?.current_status?.moisture_status || "unknown",
+          score: results.waterStress?.current_status?.water_stress || 0
+        },
+        stage_classifier: {
+          stage: results.stage?.prediction || "unknown"
+        }
+      };
+
+      const response = await fetch(`${API_URL}/api/generate-recommendations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          plotId,
+          farmerId,
+          plotFeatures: aggregatedFeatures,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setFetchedRecommendations(data.recommendations);
+      }
+    } catch (err) {
+      console.error('Error fetching recommendations:', err);
+    } finally {
+      _setLoading(false);
+    }
+  }, [plotId, farmerId, results]);
+
+  useEffect(() => {
+    if (!passedRecommendations && plotId && farmerId) {
+      fetchRecommendations();
+    }
+  }, [passedRecommendations, plotId, farmerId, fetchRecommendations]);
+  
+  // Use passed recommendations first, then fetched, then fallback to old format
+  const finalRecommendations = passedRecommendations || fetchedRecommendations || recommendations;
 
   // Get disease advice from the results
   const getDiseaseAdvice = () => {
@@ -420,15 +479,26 @@ export default function DiseaseResultScreen({ route, navigation }: DiseaseResult
       )}
 
       {/* Disease Recommendations */}
-      {recommendations?.disease && (
+      {(finalRecommendations?.disease_detection || finalRecommendations?.disease) && (
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Disease Recommendations</Text>
+          <Text style={styles.sectionTitle}>Next Steps to be taken  </Text>
           <View style={styles.recommendationsContainer}>
-            {recommendations.disease.map((rec: string, index: number) => (
-              <View key={`disease-${index}`} style={styles.recommendationItem}>
-                <Text style={styles.recommendationText}>• {rec}</Text>
-              </View>
-            ))}
+            {(() => {
+              let recs = [];
+              if (finalRecommendations?.disease_detection && typeof finalRecommendations.disease_detection === 'string') {
+                recs = finalRecommendations.disease_detection
+                  .split('\n\n')
+                  .filter((rec: string) => rec.trim().length > 0)
+                  .map((rec: string) => rec.trim());
+              } else if (finalRecommendations?.disease && Array.isArray(finalRecommendations.disease)) {
+                recs = finalRecommendations.disease;
+              }
+              return recs.map((rec: string, index: number) => (
+                <View key={`disease-${index}`} style={styles.recommendationItem}>
+                  <Text style={styles.recommendationText}>• {rec}</Text>
+                </View>
+              ));
+            })()}
           </View>
         </View>
       )}
@@ -455,7 +525,7 @@ const ConfidenceMeter = ({ label, value, color }: { label: string, value: number
   </View>
 );
 
-const { width } = Dimensions.get('window');
+// width not used in this screen
 
 const styles = StyleSheet.create({
   container: {

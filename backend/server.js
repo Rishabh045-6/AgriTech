@@ -279,6 +279,67 @@ app.post('/api/run-model', async (req, res) => {
   }
 });
 
+app.post('/api/generate-recommendations', async (req, res) => {
+  
+  const { plotId, farmerId, plotFeatures } = req.body; // Receive plot data and farmerId from frontend
+
+  if (!plotId || !plotFeatures) { // farmerId might be optional initially
+    return res.status(400).json({ error: 'plotId and plotFeatures are required' });
+  }
+
+  // Prepare data to send to Python script (as JSON string)
+  const inputData = {
+    plot_id: plotId,
+    farmer_id: farmerId, // Pass farmerId if available
+    current_crop: plotFeatures.current_crop || null,
+    last_updated: plotFeatures.last_updated || null,
+    // ... other fields like current_crop, last_updated if needed by decision_engine...
+    features_data: plotFeatures // Pass the features data object
+  };
+
+  const pythonScriptPath = path.join(__dirname, 'decision_engine.py'); // Path to your Python script
+
+  console.log(`Calling Python script: python ${pythonScriptPath} with data:`, JSON.stringify(inputData, null, 2));
+
+  const pythonProcess = spawn('python', [pythonScriptPath, JSON.stringify(inputData)]); // Pass data as argument
+
+  let outputData = '';
+  let errorOutput = '';
+
+  pythonProcess.stdout.on('data', (data) => {
+    outputData += data.toString();
+  });
+
+  pythonProcess.stderr.on('data', (data) => {
+    errorOutput += data.toString();
+  });
+
+  pythonProcess.on('close', (code) => {
+    console.log(`Python script exited with code ${code}`);
+    console.log(`Python stdout: ${outputData}`);
+    console.log(`Python stderr: ${errorOutput}`);
+
+    if (code !== 0) {
+      console.error('Python script error:', errorOutput);
+      return res.status(500).json({ error: `Python script failed with code ${code}`, details: errorOutput });
+    }
+
+    try {
+      const result = JSON.parse(outputData.trim());
+      if (result.error) {
+        console.error('Error from Python logic:', result.error);
+        return res.status(500).json(result); // Return error from Python logic
+      }
+      console.log('Recommendations generated successfully:', result.plot_id);
+      res.json(result); // Send recommendations back to frontend
+    } catch (parseErr) {
+      console.error('Error parsing Python output:', parseErr);
+      console.error('Raw output was:', outputData);
+      res.status(500).json({ error: 'Failed to parse recommendation output from Python script' });
+    }
+  });
+});
+
 // Get latest plot
 app.get('/api/latest-plot', async (req, res) => {
   try {

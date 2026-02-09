@@ -1,0 +1,198 @@
+{
+  "crop_name": "wheat",
+  "DISEASE_RISK_ADVICE": {
+    "levels": [
+      {
+        "level": "low",
+        "recommendations": {
+          "general": "Low disease pressure observed in the last satellite pass.\n\nContinue weekly field inspection.\n\nNo fungicide application currently required.",
+          "vegetative": "Maintain balanced nitrogen to avoid dense canopy.",
+          "reproductive": "Low disease pressure observed in the last satellite pass.\n\nContinue weekly field inspection.\n\nNo fungicide application currently required.",
+          "ripening": "Low disease pressure observed in the last satellite pass.\n\nContinue weekly field inspection.\n\nNo fungicide application currently required."
+        }
+      },
+      {
+        "level": "medium",
+        "recommendations": {
+          "general": "Conditions favorable for disease development were indicated.\n\nInspect lower leaves for spots, rust pustules, or powdery growth.\n\nAvoid excess irrigation and late nitrogen application.",
+          "vegetative": "Early control can prevent spread to upper leaves.",
+          "reproductive": "⚠️ Disease at this stage can reduce grain size and weight.",
+          "ripening": "Focus on preventing disease spread to healthy areas."
+        }
+      },
+      {
+        "level": "high",
+        "recommendations": {
+          "general": "High disease risk was indicated in the last observation.\n\nField scouting is recommended to verify current conditions.\n\nIf symptoms are visible and confirmed, apply recommended fungicide promptly.",
+          "vegetative": "Early intervention can prevent yield loss if disease is present.",
+          "reproductive": "🚨 Critical — disease confirmed now can severely affect grain filling.",
+          "ripening": "Yield recovery limited — focus on containment if disease is present."
+        }
+      }
+    ]
+  },
+  "PEST_RISK_ADVICE": {
+    "levels": [
+      {
+        "level": "low",
+        "recommendations": {
+          "general": "Pest activity appeared minimal in the last observation.\n\nNo chemical control currently needed.\n\nPreserve beneficial insects.",
+          "vegetative": "Pest activity appeared minimal in the last observation.\n\nNo chemical control currently needed.\n\nPreserve beneficial insects.",
+          "reproductive": "Pest activity appeared minimal in the last observation.\n\nNo chemical control currently needed.\n\nPreserve beneficial insects.",
+          "ripening": "Pest activity appeared minimal in the last observation.\n\nNo chemical control currently needed.\n\nPreserve beneficial insects."
+        }
+      },
+      {
+        "level": "medium",
+        "recommendations": {
+          "general": "Pest-friendly conditions were detected.\n\nMonitor for aphids, armyworms, or termites.\n\nUse mechanical or biological controls where possible.",
+          "vegetative": "Aphids and termites are more damaging at early growth stages if present.",
+          "reproductive": "Aphids can directly affect grain filling if population is high.",
+          "ripening": "Avoid spraying unless infestation has become severe."
+        }
+      },
+      {
+        "level": "high",
+        "recommendations": {
+          "general": "High pest risk was indicated in the last satellite data.\n\nField inspection is recommended to verify current pest population.\n\nIf pest population crosses threshold upon verification, apply targeted insecticide.\n\n⚠️ Avoid repeated use of the same pesticide group.",
+          "vegetative": "High pest risk was indicated. Verify current field conditions.",
+          "reproductive": "High pest risk was indicated. Verify current field conditions.",
+          "ripening": "High pest risk was indicated. Verify current field conditions."
+        }
+      }
+    ]
+  },
+  "IRRIGATION_WATER_STRESS_ADVICE": {
+    "levels": [
+      {
+        "level": "optimal",
+        "recommendations": {
+          "general": "Soil moisture appeared adequate in the last observation.\n\nNo irrigation required based on available data.\n\nMaintain current irrigation schedule.",
+          "vegetative": "Soil moisture appeared adequate in the last observation.\n\nNo irrigation required based on available data.\n\nMaintain current irrigation schedule.",
+          "reproductive": "Soil moisture appeared adequate in the last observation.\n\nNo irrigation required based on available data.\n\nMaintain current irrigation schedule.",
+          "ripening": "Soil moisture appeared adequate in the last observation.\n\nNo irrigation required based on available data.\n\nMaintain current irrigation schedule."
+        }
+      },
+      {
+        "level": "mild",
+        "recommendations": {
+          "general": "Early signs of moisture stress were observed.\n\nMonitor soil moisture closely.\n\nPlan irrigation if stress has increased.",
+          "vegetative": "Timely irrigation can improve tiller formation if stress persists.",
+          "reproductive": "⚠️ Sensitive stage — check if stress has continued since observation.",
+          "ripening": "Mild stress has limited impact at this stage."
+        }
+      },
+      {
+        "level": "moderate",
+        "recommendations": {
+          "general": "Moisture stress affecting crop growth was detected.\n\nIf no irrigation or rainfall since observation, irrigate within the next few days.",
+          "vegetative": "Moisture stress affecting crop growth was detected.\n\nIf no irrigation or rainfall since observation, irrigate within the next few days.",
+          "reproductive": "🚨 Irrigate promptly if dry conditions persist, to protect grain formation.",
+          "ripening": "Moisture stress affecting crop growth was detected.\n\nIf no irrigation or rainfall since observation, irrigate within the next few days."
+        }
+      },
+      {
+        "level": "severe",
+        "recommendations": {
+          "general": "Severe moisture deficit was detected in the last satellite pass.\n\nIf no irrigation or significant rainfall has occurred since then, irrigate as soon as practical.\n\nCheck for uneven water distribution.",
+          "vegetative": "Severe moisture deficit was detected. If dry conditions continue, irrigate promptly.",
+          "reproductive": "High risk of shriveled grains and yield loss if severe stress continues.",
+          "ripening": "Severe moisture deficit was detected. If dry conditions continue, irrigate promptly."
+        }
+      }
+    ]
+  },
+  "GENERAL_NUTRIENT_STRESS_ADVICE": {
+    "levels": [
+      {
+        "level": "low",
+        "recommendations": {
+          "general": "Nutrient balance appeared adequate in the last observation.\n\nContinue regular fertilizer management.",
+          "vegetative": "Nutrient balance appeared adequate in the last observation.\n\nContinue regular fertilizer management.",
+          "reproductive": "Nutrient balance appeared adequate in the last observation.\n\nContinue regular fertilizer management.",
+          "ripening": "Nutrient balance appeared adequate in the last observation.\n\nContinue regular fertilizer management."
+        }
+      },
+      {
+        "level": "moderate",
+        "recommendations": {
+          "general": "Early nutrient stress indicators were observed.\n\nReview fertilizer timing and dosage.\n\nConsider soil or leaf analysis if stress symptoms persist.",
+          "vegetative": "Nutrient correction can still improve yield if needed.",
+          "reproductive": "Late correction has limited effect at this stage.",
+          "ripening": "Avoid aggressive fertilization during ripening."
+        }
+      },
+      {
+        "level": "high",
+        "recommendations": {
+          "general": "Significant nutrient stress indicators were detected.\n\nCorrective action may be required if deficiency is confirmed.\n\nPrefer foliar nutrition for quicker response if needed.\n\n⚠️ Avoid excess nitrogen application if disease risk is also high.",
+          "vegetative": "Significant nutrient stress indicators were detected.\n\nCorrective action may be required if deficiency is confirmed.\n\nPrefer foliar nutrition for quicker response if needed.\n\n⚠️ Avoid excess nitrogen application if disease risk is also high.",
+          "reproductive": "Significant nutrient stress indicators were detected.\n\nCorrective action may be required if deficiency is confirmed.\n\nPrefer foliar nutrition for quicker response if needed.\n\n⚠️ Avoid excess nitrogen application if disease risk is also high.",
+          "ripening": "Significant nutrient stress indicators were detected.\n\nCorrective action may be required if deficiency is confirmed.\n\nPrefer foliar nutrition for quicker response if needed.\n\n⚠️ Avoid excess nitrogen application if disease risk is also high."
+        }
+      }
+    ]
+  },
+  "NITROGEN_STATUS_ADVICE": {
+    "levels": [
+      {
+        "level": "adequate",
+        "recommendations": {
+          "general": "Nitrogen supply appeared sufficient in the last observation.\n\nNo additional nitrogen currently required.\n\nExcess nitrogen may increase lodging risk.",
+          "vegetative": "Nitrogen supply appeared sufficient in the last observation.\n\nNo additional nitrogen currently required.\n\nExcess nitrogen may increase lodging risk.",
+          "reproductive": "Nitrogen supply appeared sufficient in the last observation.\n\nNo additional nitrogen currently required.\n\nExcess nitrogen may increase lodging risk.",
+          "ripening": "Nitrogen supply appeared sufficient in the last observation.\n\nNo additional nitrogen currently required.\n\nExcess nitrogen may increase lodging risk."
+        }
+      },
+      {
+        "level": "moderate_deficiency",
+        "recommendations": {
+          "general": "Slight nitrogen deficiency was indicated.\n\nMonitor leaf color and tiller count for confirmation.\n\nConsider split nitrogen application if stage permits and deficiency is confirmed.",
+          "vegetative": "Nitrogen application can boost tillering if deficiency is verified.",
+          "reproductive": "Apply cautiously if confirmed — excess may increase disease risk.",
+          "ripening": "❌ Nitrogen application not recommended at this stage."
+        }
+      },
+      {
+        "level": "high_deficiency",
+        "recommendations": {
+          "general": "Severe nitrogen deficiency was indicated in the last observation.\n\nField verification is recommended.\n\nIf confirmed, correct nitrogen deficiency as practical.",
+          "vegetative": "Strong response expected if deficiency is confirmed and corrected.",
+          "reproductive": "Late nitrogen application may increase lodging risk.",
+          "ripening": "❌ No benefit from nitrogen application at this stage."
+        }
+      }
+    ]
+  },
+  "CHLOROPHYLL_STATUS_ADVICE": {
+    "levels": [
+      {
+        "level": "optimal",
+        "recommendations": {
+          "general": "Chlorophyll levels appeared healthy in the last observation.\n\nPhotosynthesis was functioning normally.",
+          "vegetative": "Chlorophyll levels appeared healthy in the last observation.\n\nPhotosynthesis was functioning normally.",
+          "reproductive": "Chlorophyll levels appeared healthy in the last observation.\n\nPhotosynthesis was functioning normally.",
+          "ripening": "Chlorophyll levels appeared healthy in the last observation.\n\nPhotosynthesis was functioning normally."
+        }
+      },
+      {
+        "level": "moderate",
+        "recommendations": {
+          "general": "Chlorophyll slightly below optimal was detected.\n\nMonitor leaf yellowing, especially lower leaves, for confirmation.\n\nReview nitrogen and micronutrient availability if symptoms persist.",
+          "vegetative": "Recovery possible if deficiency is addressed.",
+          "reproductive": "Stress may reduce grain weight if chlorophyll levels remain low.",
+          "ripening": "Mild decline in chlorophyll is expected at this stage."
+        }
+      },
+      {
+        "level": "low",
+        "recommendations": {
+          "general": "Low chlorophyll levels were detected in the last observation.\n\nReduced photosynthesis is likely if condition persists.\n\nCheck nitrogen status and root health.\n\nFoliar feeding may help if applied early and deficiency is confirmed.",
+          "vegetative": "Good recovery potential if deficiency is confirmed and addressed.",
+          "reproductive": "Yield reduction likely if low chlorophyll persists through this stage.",
+          "ripening": "Mostly irreversible at this stage — focus on preventing further stress."
+        }
+      }
+    ]
+  }
+}

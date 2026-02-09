@@ -19,6 +19,14 @@ import torch
 import torch.nn as nn
 import base64
 
+# Import decision engine for recommendations
+try:
+    from decision_engine import generate_recommendations
+    DECISION_ENGINE_AVAILABLE = True
+except ImportError:
+    DECISION_ENGINE_AVAILABLE = False
+    print("Warning: decision_engine not available", file=sys.stderr)
+
 # Suppress warnings
 warnings.filterwarnings('ignore')
 
@@ -1905,12 +1913,19 @@ def predict_crop_analysis_new(farmer_id, crop_type, coordinates):
         stage_probs = np.array([0.5, 0.3, 0.2])
         
         try:
-            model_path = f"models/{crop_type}_model.pt"
-            scaler_path = f"scalers/{crop_type}_scaler.pkl"
+            # Use absolute paths based on script directory to avoid relative path issues
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            model_path = os.path.join(script_dir, f"models/{crop_type}_model.pt")
+            scaler_path = os.path.join(script_dir, f"scalers/{crop_type}_scaler.pkl")
             
-            if os.path.exists(model_path) and os.path.exists(scaler_path):
+            # Validate files exist and are readable before loading
+            if os.path.exists(model_path) and os.path.exists(scaler_path) and os.path.isfile(model_path) and os.path.isfile(scaler_path):
                 # Load model - handle multiple checkpoint formats
-                checkpoint = torch.load(model_path, map_location=torch.device('cpu'))
+                try:
+                    checkpoint = torch.load(model_path, map_location=torch.device('cpu'))
+                except Exception as torch_err:
+                    print(f"Torch load error for {model_path}: {str(torch_err)}", file=sys.stderr)
+                    checkpoint = None
                 
                 # Helper function to extract state_dict from various checkpoint formats
                 def extract_state_dict(checkpoint_data):
@@ -1926,9 +1941,9 @@ def predict_crop_analysis_new(farmer_id, crop_type, coordinates):
                                 return checkpoint_data
                     return None
                 
-                state_dict = extract_state_dict(checkpoint)
+                state_dict = extract_state_dict(checkpoint) if checkpoint is not None else None
                 
-                if state_dict is not None:
+                if checkpoint is not None and state_dict is not None:
                     # Create model architecture and load state dict
                     model = nn.Sequential(
                         nn.Linear(window_size * 19, 64),
@@ -1944,11 +1959,11 @@ def predict_crop_analysis_new(farmer_id, crop_type, coordinates):
                         # If state_dict doesn't match, it means the saved model is a different architecture
                         # (e.g., TransformerClassifier). We'll use a fallback model instead.
                         model = None
-                elif isinstance(checkpoint, nn.Module):
+                elif checkpoint is not None and isinstance(checkpoint, nn.Module):
                     # It's already a full model
                     model = checkpoint
                 else:
-                    # Unknown format
+                    # Unknown format or None
                     model = None
                 
                 if model is not None:
@@ -1966,8 +1981,12 @@ def predict_crop_analysis_new(farmer_id, crop_type, coordinates):
                     model.eval()
                 
                 import pickle
-                with open(scaler_path, 'rb') as f:
-                    scaler = pickle.load(f)
+                try:
+                    with open(scaler_path, 'rb') as f:
+                        scaler = pickle.load(f)
+                except (pickle.UnpicklingError, EOFError, ValueError) as pickle_err:
+                    print(f"Pickle load error for {scaler_path}: {str(pickle_err)}", file=sys.stderr)
+                    raise RuntimeError(f"Failed to load scaler from {scaler_path}: {str(pickle_err)}")
                 
                 # Flatten features for the model
                 X_flat = features.reshape(1, -1)
@@ -2190,6 +2209,82 @@ if __name__ == "__main__":
             coordinates = [{'latitude': 30.5, 'longitude': 75.5}]
 
         result = predict_crop_analysis_new(farmer_id, crop_type, coordinates)
+        
+        # Call decision engine to generate recommendations if available
+        if DECISION_ENGINE_AVAILABLE and result.get("success"):
+            try:
+                # Extract water stress status
+                water_stress_data = result.get("waterStress", {})
+                water_stress_score = 0
+                water_stress_status = "normal"
+                
+                if isinstance(water_stress_data, dict):
+                    current_status = water_stress_data.get("current_status", {})
+                    water_stress_score = current_status.get("water_stress", 0)
+                    # Convert numeric score to status level
+                    if water_stress_score > 0.7:
+                        water_stress_status = "severe"
+                    elif water_stress_score > 0.4:
+                        water_stress_status = "moderate"
+                    elif water_stress_score > 0.2:
+                        water_stress_status = "mild"
+                    else:
+                        water_stress_status = "normal"
+                
+                print(f"DEBUG: Water stress status={water_stress_status}, score={water_stress_score}", file=sys.stderr)
+                
+                # Prepare input data for decision engine
+                decision_input = {
+                    "plot_id": farmer_id,
+                    "farmer_id": farmer_id,
+                    "current_crop": crop_type.lower(),  # Ensure lowercase for decision engine
+                    "features_data": {
+                        "stage_classifier": {
+                            "stage": result.get("stage", {}).get("prediction", "")
+                        },
+                        "disease_detection": {
+                            "risk_level": result.get("disease", {}).get("risk_level", "LOW"),
+                            "disease_prob": result.get("disease", {}).get("probability", 0)
+                        },
+                        "pest_risk": {
+                            "risk_level": result.get("pest", {}).get("risk_level", "Low"),
+                            "confidence": result.get("pest", {}).get("confidence", 0)
+                        },
+                        "water_stress": {
+                            "stress": water_stress_status,
+                            "score": water_stress_score
+                        },
+                        "growth_performance": result.get("growthPerformance", {})
+                    },
+                    "last_updated": datetime.now().isoformat()
+                }
+                
+                print(f"DEBUG: Decision input crop={decision_input['current_crop']}", file=sys.stderr)
+                print(f"DEBUG: Disease risk_level={decision_input['features_data']['disease_detection']['risk_level']}", file=sys.stderr)
+                print(f"DEBUG: Pest risk_level={decision_input['features_data']['pest_risk']['risk_level']}", file=sys.stderr)
+                
+                # Generate recommendations
+                recommendations = generate_recommendations(decision_input)
+                
+                print(f"DEBUG: Recommendations returned: {json.dumps(recommendations, default=str)}", file=sys.stderr)
+                
+                # Add recommendations to result
+                if recommendations and "error" not in recommendations:
+                    result["recommendations"] = recommendations.get("recommendations", {})
+                    result["recommendation_details"] = recommendations.get("recommendation_details", {})
+                    print(f"DEBUG: Recommendations added successfully. Keys: {list(result.get('recommendations', {}).keys())}", file=sys.stderr)
+                else:
+                    # Log any errors from decision engine to stderr
+                    if recommendations and "error" in recommendations:
+                        print(f"Decision engine error: {recommendations['error']}", file=sys.stderr)
+                    else:
+                        print(f"WARNING: Unexpected recommendations response: {recommendations}", file=sys.stderr)
+                    
+            except Exception as e:
+                import traceback
+                print(f"ERROR: Failed to generate recommendations: {str(e)}", file=sys.stderr)
+                print(traceback.format_exc(), file=sys.stderr)
+                # Continue without recommendations rather than failing
         
         # Clean output
         sys.stdout.write(json.dumps(result))
