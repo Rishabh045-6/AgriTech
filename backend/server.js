@@ -54,7 +54,7 @@ async function initTables() {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
-        username VARCHAR(100) UNIQUE NOT NULL,
+        username VARCHAR(100) NOT NULL,
         farmer_id VARCHAR(100) UNIQUE NOT NULL,
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
@@ -193,7 +193,7 @@ app.post('/api/run-model', async (req, res) => {
 
     // Fetch plot coordinates from database
     const { rows } = await pool.query(
-      `SELECT ST_AsGeoJSON(plot_geom) AS plot_geojson
+      `SELECT ST_AsGeoSON(plot_geom) AS plot_geojson
        FROM plots
        WHERE farmer_id = $1
        ORDER BY created_at DESC
@@ -389,7 +389,7 @@ app.get('/api/latest-plot', async (req, res) => {
 
 // Start server
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Server running on http://0.0.0.0:${PORT}`);
+  console.log(`🚀 Server running on http://localhost:${PORT}`);
 });
 
 console.log('✅ Server started successfully!');
