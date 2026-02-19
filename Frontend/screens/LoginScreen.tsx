@@ -31,7 +31,7 @@
         const isDevelopment = __DEV__;
         const API_BASE_URL = !isDevelopment
           ? 'https://your-agritech-backend.azurewebsites.net'  // Your Azure URL
-          : 'http://10.67.1.211:3001';  // Local dev
+          : 'http://10.67.11.81:3001';  // Local dev
 
         const response = await fetch(`${API_BASE_URL}/api/login`, {
           method: 'POST',

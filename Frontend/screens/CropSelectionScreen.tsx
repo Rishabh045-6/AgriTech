@@ -43,7 +43,7 @@ export default function CropSelectionScreen({ route, navigation }: CropSelection
     setLoading(true); // ✅ Start loading
 
     try {
-      const API_URL = 'http://10.67.1.211:3001';
+      const API_URL = 'http://10.67.11.81:3001';
 
       const response = await fetch(`${API_URL}/api/run-model`, {
         method: 'POST',

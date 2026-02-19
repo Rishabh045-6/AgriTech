@@ -11,7 +11,7 @@ import {
 
 const API_URL =
     Platform.OS === 'android'
-        ? 'http://10.67.1.211:3001' // Make sure this IP is correct for your backend server
+        ? 'http://10.67.11.81:3001' // Make sure this IP is correct for your backend server
         : 'http://localhost:3001';
 
 interface RecommendationItemProps {

@@ -12,7 +12,7 @@ import {
 
 const API_URL =
   Platform.OS === 'android'
-    ? 'http://10.67.1.211:3001'
+    ? 'http://10.67.11.81:3001'
     : 'http://localhost:3001';
 
 type DiseaseResultScreenProps = {
