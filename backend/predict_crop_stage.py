@@ -18,6 +18,50 @@ from shapely.geometry import Polygon
 import torch
 import torch.nn as nn
 import base64
+import pickle
+from typing import Optional
+
+
+def _load_local_env_file():
+    """Load simple KEY=VALUE pairs from a local .env file into os.environ if present.
+    This is a lightweight fallback so running the script directly picks up credentials
+    placed in `backend/.env` (without requiring python-dotenv).
+    """
+    try:
+        env_path = os.path.join(os.path.dirname(__file__), '.env')
+        if not os.path.exists(env_path):
+            return
+        with open(env_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#') or '=' not in line:
+                    continue
+                key, val = line.split('=', 1)
+                key = key.strip()
+                val = val.strip().strip('"').strip("'")
+                if key and val:
+                    os.environ.setdefault(key, val)
+    except Exception:
+        pass
+
+
+# Try to load local .env so `python predict_crop_stage.py ...` works like server spawn
+_load_local_env_file()
+
+try:
+    from sentinelhub import SHConfig, BBox, CRS, DataCollection, MimeType, SentinelHubRequest, bbox_to_dimensions
+    SENTINELHUB_AVAILABLE = True
+except Exception:
+    SENTINELHUB_AVAILABLE = False
+
+try:
+    from growth_performance.yield_calculator import (
+        estimate_yield_kg_ha as gp_estimate_yield_kg_ha,
+        get_yield_category as gp_get_yield_category,
+    )
+    GROWTH_PERFORMANCE_AVAILABLE = True
+except Exception:
+    GROWTH_PERFORMANCE_AVAILABLE = False
 
 # Import decision engine for recommendations
 try:
@@ -1848,6 +1892,475 @@ def serialize_dataframe(df):
             df_copy[col] = df_copy[col].astype(str)
     return df_copy.to_dict('records')
 
+
+def _candidate_crop_keys(crop_type):
+    """Return candidate crop keys to handle file naming inconsistencies."""
+    crop = str(crop_type or "").strip().lower()
+    candidates = [crop]
+    alias_map = {
+        "bean": ["bean", "beans"],
+        "beans": ["bean", "beans"],
+        "pigeon_pea": ["pigeon_pea", "pigeonpea"],
+        "pigeonpea": ["pigeon_pea", "pigeonpea"],
+    }
+    for alias in alias_map.get(crop, []):
+        if alias not in candidates:
+            candidates.append(alias)
+    return candidates
+
+
+def _resolve_existing_path(base_dir, subdir, suffix, crop_type):
+    """Resolve the first existing file path for a crop with alias handling."""
+    for key in _candidate_crop_keys(crop_type):
+        path = os.path.join(base_dir, subdir, f"{key}{suffix}")
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def _load_scaler(base_dir, crop_type):
+    """Load scaler for a crop, trying alias keys."""
+    scaler_path = _resolve_existing_path(base_dir, "scalers", "_scaler.pkl", crop_type)
+    if not scaler_path:
+        return None
+    with open(scaler_path, "rb") as f:
+        return pickle.load(f)
+
+
+def _softmax_np(values):
+    values = np.asarray(values, dtype=np.float32)
+    values = values - np.max(values)
+    exp_v = np.exp(values)
+    denom = np.sum(exp_v)
+    if denom <= 0:
+        return np.array([1 / len(values)] * len(values), dtype=np.float32)
+    return exp_v / denom
+
+
+def _build_transformer_from_state_dict(state_dict):
+    """Build transformer matching checkpoint layout and load weights."""
+    if not isinstance(state_dict, dict):
+        return None
+    if "input_proj.weight" not in state_dict:
+        return None
+    d_model, input_dim = state_dict["input_proj.weight"].shape
+
+    # Layout A: encoder.* + pos_embed + head.* (pest models)
+    if "pos_embed" in state_dict:
+        window_size = state_dict["pos_embed"].shape[1]
+
+        layer_ids = set()
+        for key in state_dict.keys():
+            if key.startswith("encoder.layers."):
+                parts = key.split(".")
+                if len(parts) > 2 and parts[2].isdigit():
+                    layer_ids.add(int(parts[2]))
+        num_layers = (max(layer_ids) + 1) if layer_ids else 2
+
+        in_proj_key = "encoder.layers.0.self_attn.in_proj_weight"
+        nhead = max(1, int(state_dict[in_proj_key].shape[0] / (3 * d_model))) if in_proj_key in state_dict else 4
+        ff_key = "encoder.layers.0.linear1.weight"
+        dim_feedforward = int(state_dict[ff_key].shape[0]) if ff_key in state_dict else 256
+        hidden_dim = int(state_dict["head.1.weight"].shape[0]) if "head.1.weight" in state_dict else d_model
+        num_classes = int(state_dict["head.4.weight"].shape[0]) if "head.4.weight" in state_dict else 3
+
+        class GenericTransformer(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.input_proj = nn.Linear(input_dim, d_model)
+                self.pos_embed = nn.Parameter(torch.zeros(1, window_size, d_model))
+                encoder_layer = nn.TransformerEncoderLayer(
+                    d_model=d_model,
+                    nhead=nhead,
+                    dim_feedforward=dim_feedforward,
+                    dropout=0.1,
+                    batch_first=True,
+                )
+                self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+                self.head = nn.Sequential(
+                    nn.LayerNorm(d_model),
+                    nn.Linear(d_model, hidden_dim),
+                    nn.ReLU(),
+                    nn.Dropout(0.1),
+                    nn.Linear(hidden_dim, num_classes),
+                )
+
+            def forward(self, x):
+                x = self.input_proj(x)
+                x = x + self.pos_embed[:, : x.size(1), :]
+                x = self.encoder(x)
+                x = x.mean(dim=1)
+                return self.head(x)
+    # Layout B: transformer_encoder.* + pos_encoder + classifier.* (disease models)
+    elif "pos_encoder" in state_dict:
+        window_size = state_dict["pos_encoder"].shape[1]
+
+        layer_ids = set()
+        for key in state_dict.keys():
+            if key.startswith("transformer_encoder.layers."):
+                parts = key.split(".")
+                if len(parts) > 2 and parts[2].isdigit():
+                    layer_ids.add(int(parts[2]))
+        num_layers = (max(layer_ids) + 1) if layer_ids else 2
+
+        in_proj_key = "transformer_encoder.layers.0.self_attn.in_proj_weight"
+        nhead = max(1, int(state_dict[in_proj_key].shape[0] / (3 * d_model))) if in_proj_key in state_dict else 4
+        ff_key = "transformer_encoder.layers.0.linear1.weight"
+        dim_feedforward = int(state_dict[ff_key].shape[0]) if ff_key in state_dict else 256
+        hidden_dim = int(state_dict["classifier.2.weight"].shape[0]) if "classifier.2.weight" in state_dict else 32
+        num_classes = int(state_dict["classifier.5.weight"].shape[0]) if "classifier.5.weight" in state_dict else 1
+
+        class GenericTransformer(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.input_proj = nn.Linear(input_dim, d_model)
+                self.pos_encoder = nn.Parameter(torch.zeros(1, window_size, d_model))
+                encoder_layer = nn.TransformerEncoderLayer(
+                    d_model=d_model,
+                    nhead=nhead,
+                    dim_feedforward=dim_feedforward,
+                    dropout=0.1,
+                    batch_first=True,
+                )
+                self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+                self.classifier = nn.Sequential(
+                    nn.LayerNorm(d_model),
+                    nn.Dropout(0.1),
+                    nn.Linear(d_model, hidden_dim),
+                    nn.ReLU(),
+                    nn.Dropout(0.1),
+                    nn.Linear(hidden_dim, num_classes),
+                )
+
+            def forward(self, x):
+                x = self.input_proj(x)
+                x = x + self.pos_encoder[:, : x.size(1), :]
+                x = self.transformer_encoder(x)
+                x = x.mean(dim=1)
+                return self.classifier(x)
+    else:
+        return None
+
+    model = GenericTransformer()
+    missing, unexpected = model.load_state_dict(state_dict, strict=False)
+    if missing or unexpected:
+        return None
+    model.eval()
+    return model
+
+
+def _predict_multiclass_from_model(crop_type, features, base_dir, model_suffix, fallback_probs):
+    """Predict class probabilities using crop-specific transformer model.
+
+    Returns a tuple `(probs, used_fallback)` where `used_fallback` is a boolean
+    indicating that the fallback_probs were returned due to missing model or
+    inference error.
+    """
+    fallback_probs = np.asarray(fallback_probs, dtype=np.float32)
+    model_path = _resolve_existing_path(base_dir, "models", model_suffix, crop_type)
+    if not model_path:
+        print(f"Model path not found for {crop_type}{model_suffix}, using fallback", file=sys.stderr)
+        return fallback_probs, True
+
+    try:
+        scaler = _load_scaler(base_dir, crop_type)
+        if scaler is None:
+            print(f"Scaler missing for {crop_type}, using fallback", file=sys.stderr)
+            return fallback_probs, True
+
+        checkpoint = torch.load(model_path, map_location=torch.device("cpu"))
+        model = None
+
+        if isinstance(checkpoint, nn.Module):
+            model = checkpoint
+            model.eval()
+        elif isinstance(checkpoint, dict):
+            state_dict = checkpoint
+            for key in ["model_state_dict", "state_dict", "model", "net", "weights"]:
+                if key in checkpoint and isinstance(checkpoint[key], dict):
+                    state_dict = checkpoint[key]
+                    break
+            model = _build_transformer_from_state_dict(state_dict)
+
+        if model is None:
+            print(f"Unable to build model for {model_path}, using fallback", file=sys.stderr)
+            return fallback_probs, True
+
+        feature_dim = features.shape[1]
+        scaler_total_features = int(getattr(scaler, "n_features_in_", features.size))
+        scaler_seq_len = max(1, int(scaler_total_features / feature_dim))
+
+        seq_for_scaler = features
+        if seq_for_scaler.shape[0] > scaler_seq_len:
+            seq_for_scaler = seq_for_scaler[-scaler_seq_len:]
+        elif seq_for_scaler.shape[0] < scaler_seq_len:
+            pad_len = scaler_seq_len - seq_for_scaler.shape[0]
+            pad = np.tile(seq_for_scaler[0], (pad_len, 1))
+            seq_for_scaler = np.vstack([pad, seq_for_scaler])
+
+        scaled_flat = scaler.transform(seq_for_scaler.reshape(1, -1))
+        scaled_seq = scaled_flat.reshape(1, scaler_seq_len, feature_dim)
+
+        model_seq_len = scaler_seq_len
+        if hasattr(model, "pos_embed") and model.pos_embed is not None:
+            model_seq_len = int(model.pos_embed.shape[1])
+        elif hasattr(model, "pos_encoder") and model.pos_encoder is not None:
+            model_seq_len = int(model.pos_encoder.shape[1])
+
+        if scaled_seq.shape[1] > model_seq_len:
+            scaled_seq = scaled_seq[:, -model_seq_len:, :]
+        elif scaled_seq.shape[1] < model_seq_len:
+            pad_len = model_seq_len - scaled_seq.shape[1]
+            pad = np.repeat(scaled_seq[:, :1, :], pad_len, axis=1)
+            scaled_seq = np.concatenate([pad, scaled_seq], axis=1)
+
+        x_seq = torch.FloatTensor(scaled_seq)
+
+        with torch.no_grad():
+            output = model(x_seq)
+            logits = output.detach().cpu().numpy().reshape(-1)
+
+        if logits.size == 3:
+            probs = _softmax_np(logits)
+        elif logits.size == 2:
+            p2 = _softmax_np(logits)
+            probs = np.array([p2[0], (p2[0] + p2[1]) / 2.0, p2[1]], dtype=np.float32)
+            probs = probs / probs.sum()
+        elif logits.size == 1:
+            p_high = float(1.0 / (1.0 + np.exp(-logits[0])))
+            p_low = 1.0 - p_high
+            probs = np.array([p_low, p_high], dtype=np.float32)
+        else:
+            probs = fallback_probs
+
+        return probs.astype(np.float32), np.array_equal(probs, fallback_probs)
+    except Exception as model_err:
+        print(f"Model inference error ({model_suffix}): {str(model_err)}", file=sys.stderr)
+        return fallback_probs, True
+
+
+def _predict_pest_from_model(crop_type, features, base_dir):
+    """Predict pest risk using crop-specific model; fallback to heuristic probs."""
+    return _predict_multiclass_from_model(
+        crop_type=crop_type,
+        features=features,
+        base_dir=base_dir,
+        model_suffix="_transformer_pest_model.pth",
+        fallback_probs=np.array([0.7, 0.2, 0.1], dtype=np.float32),  # Low, Medium, High
+    )
+
+
+def _predict_disease_from_model(crop_type, features, base_dir):
+    """
+    Predict disease probability and metadata from transformer disease model.
+    Returns: (disease_prob, disease_conf, disease_name, probs)
+    """
+    probs = _predict_multiclass_from_model(
+        crop_type=crop_type,
+        features=features,
+        base_dir=base_dir,
+        model_suffix="_transformer_disease_model.pth",
+        fallback_probs=np.array([0.75, 0.2, 0.05], dtype=np.float32),
+    )
+
+    if probs.size >= 3:
+        # Interpret as [Low, Medium, High] disease risk.
+        disease_prob = float(probs[1] * 0.5 + probs[2])
+        risk_idx = int(np.argmax(probs))
+        disease_name = "Healthy" if risk_idx == 0 else "Possibly Diseased" if risk_idx == 1 else "Likely Diseased"
+        disease_conf = float(probs[risk_idx])
+    elif probs.size == 2:
+        # Interpret as [Healthy, Diseased].
+        disease_prob = float(probs[1])
+        disease_name = "Likely Diseased" if disease_prob >= 0.5 else "Healthy"
+        disease_conf = float(max(probs[0], probs[1]))
+    elif probs.size == 1:
+        disease_prob = float(probs[0])
+        disease_name = "Likely Diseased" if disease_prob >= 0.5 else "Healthy"
+        disease_conf = float(max(disease_prob, 1.0 - disease_prob))
+    else:
+        disease_prob = 0.2
+        disease_conf = 0.8
+        disease_name = "Healthy"
+
+    return disease_prob, disease_conf, disease_name, probs
+
+
+def _normalize_crop_for_yield(crop_type):
+    crop = str(crop_type or "").strip().lower()
+    if crop == "bean":
+        return "beans"
+    if crop == "pigeonpea":
+        return "pigeon_pea"
+    return crop
+
+
+def _get_sentinel_client_pairs():
+    """Return a list of (client_id, client_secret) pairs from environment variables."""
+    pairs = []
+    for i in range(1, 7):
+        cid = os.getenv(f"SENTINEL_CLIENT_{i}_ID")
+        csec = os.getenv(f"SENTINEL_CLIENT_{i}_SECRET")
+        if cid and csec:
+            pairs.append((cid, csec))
+
+    # Support single-client env style too.
+    single_id = os.getenv("SENTINEL_CLIENT_ID")
+    single_secret = os.getenv("SENTINEL_CLIENT_SECRET")
+    if single_id and single_secret:
+        pairs.append((single_id, single_secret))
+
+    return pairs
+
+
+def _sentinel_config_from_pair(client_id, client_secret):
+    cfg = SHConfig()
+    cfg.sh_client_id = client_id
+    cfg.sh_client_secret = client_secret
+    try:
+        print(f"Sentinel client selected: {client_id[:8]}... (masked)", file=sys.stderr)
+    except Exception:
+        pass
+    return cfg
+
+
+def _prepare_polygon_and_bbox(coordinates):
+    normalized = []
+    for c in coordinates:
+        lat = float(c["latitude"])
+        lon = float(c["longitude"])
+        normalized.append((lon, lat))
+
+    if len(normalized) < 3:
+        raise ValueError("At least 3 points are required for polygon geometry")
+
+    if normalized[0] != normalized[-1]:
+        normalized.append(normalized[0])
+
+    lons = [p[0] for p in normalized]
+    lats = [p[1] for p in normalized]
+    bbox = BBox((min(lons), min(lats), max(lons), max(lats)), crs=CRS.WGS84)
+    geometry = {
+        "type": "Polygon",
+        "coordinates": [normalized],
+    }
+    return bbox, geometry
+
+
+def _fetch_real_satellite_window_df(coordinates, window_size=7):
+    """
+    Try fetching a dataframe using each available Sentinel client until one succeeds.
+    Returns a tuple `(df, used_client_id)` or `(None, None)` if all attempts fail.
+
+    If credentials are not configured or the sentinelhub package isn't available,
+    returns `(None, None)` immediately.
+    """
+    if not SENTINELHUB_AVAILABLE:
+        return None, None
+
+    client_pairs = _get_sentinel_client_pairs()
+    if not client_pairs:
+        return None, None
+
+    # build geometry once
+    try:
+        bbox, _ = _prepare_polygon_and_bbox(coordinates)
+    except Exception as geom_err:
+        # invalid coords
+        print(f"Sentinel fetch geometry error: {geom_err}", file=sys.stderr)
+        return None, None
+
+    size = bbox_to_dimensions(bbox, resolution=40)
+    size = (max(32, min(size[0], 96)), max(32, min(size[1], 96)))
+
+    feature_cols = [
+        "B2", "B3", "B4", "B5", "B8", "B11", "B12",
+        "NDVI", "GNDVI", "SAVI", "NDMI", "MSI", "NDWI", "NMDI",
+        "NDRE", "CIredEdge", "CIgreen", "PSRI", "SIPI",
+    ]
+
+    for cid, csec in client_pairs:
+        cfg = _sentinel_config_from_pair(cid, csec)
+        rows = []
+        try:
+            end_date = datetime.utcnow().date()
+            for day_offset in range(window_size - 1, -1, -1):
+                d = end_date - timedelta(days=day_offset)
+                from_iso = datetime.combine(d, datetime.min.time()).isoformat() + "Z"
+                to_iso = datetime.combine(d, datetime.max.time()).isoformat() + "Z"
+
+                request = SentinelHubRequest(
+                    evalscript=EVALSCRIPT,
+                    input_data=[
+                        SentinelHubRequest.input_data(
+                            data_collection=DataCollection.SENTINEL2_L2A,
+                            time_interval=(from_iso, to_iso),
+                            mosaicking_order="leastCC",
+                        )
+                    ],
+                    responses=[SentinelHubRequest.output_response("default", MimeType.TIFF)],
+                    bbox=bbox,
+                    size=size,
+                    config=cfg,
+                )
+
+                data = request.get_data(save_data=False, max_threads=1)
+                if not data or data[0] is None:
+                    continue
+
+                arr = np.asarray(data[0], dtype=np.float32)
+                if arr.ndim != 3 or arr.shape[2] != 19:
+                    continue
+
+                pixels = arr.reshape(-1, 19)
+                valid = pixels[np.isfinite(pixels).all(axis=1)]
+                if valid.size == 0:
+                    continue
+
+                means = np.nanmean(valid, axis=0)
+                if np.isnan(means).any():
+                    continue
+
+                row = {"date": pd.Timestamp(d)}
+                for idx, col in enumerate(feature_cols):
+                    row[col] = float(means[idx])
+                rows.append(row)
+
+            if rows:
+                raw_df = pd.DataFrame(rows).sort_values("date").reset_index(drop=True)
+                if cid != client_pairs[0][0]:
+                    print(f"Sentinel fetch succeeded with fallback client {cid[:8]}...", file=sys.stderr)
+                return raw_df, cid
+            # if no rows collected, try next client
+        except Exception as sat_err:
+            errstr = str(sat_err)
+            print(f"Sentinel attempt failed for client {cid[:8]}: {errstr}", file=sys.stderr)
+            # if it was an auth error, try next client; other errors also retry so we can fall back
+            continue
+
+    # all clients failed
+    return None, None
+
+
+def _generate_synthetic_window_df(coordinates, window_size=7):
+    """
+    Fallback synthetic window when real satellite fetch is unavailable.
+    """
+    np.random.seed(hash(str(coordinates)) % 10000)
+    dates = pd.date_range(end=datetime.utcnow(), periods=window_size, freq="D")
+    raw_df = pd.DataFrame({
+        "date": dates,
+        "NDVI": np.random.uniform(0.3, 0.8, window_size),
+        "B2": np.random.uniform(0.05, 0.3, window_size),
+        "B3": np.random.uniform(0.05, 0.3, window_size),
+        "B4": np.random.uniform(0.05, 0.3, window_size),
+        "B5": np.random.uniform(0.1, 0.4, window_size),
+        "B8": np.random.uniform(0.2, 0.6, window_size),
+        "B11": np.random.uniform(0.1, 0.4, window_size),
+        "B12": np.random.uniform(0.05, 0.3, window_size),
+    })
+    return raw_df
+
 def predict_crop_analysis_new(farmer_id, crop_type, coordinates):
     """NEW VERSION - Use actual models for predictions"""
     try:
@@ -1857,37 +2370,46 @@ def predict_crop_analysis_new(farmer_id, crop_type, coordinates):
         if not isinstance(coordinates, list):
             coordinates = [coordinates]
         
-        # Create mock satellite data
-        n_points = len(coordinates) if isinstance(coordinates, list) else 1
-        dates = pd.date_range(start='2025-01-01', periods=7, freq='D')
-        
-        # Create mock dataframe with realistic values
-        np.random.seed(hash(str(coordinates)) % 10000)
-        raw_df = pd.DataFrame({
-            'date': dates,
-            'NDVI': np.random.uniform(0.3, 0.8, 7),
-            'B2': np.random.uniform(0.05, 0.3, 7),
-            'B3': np.random.uniform(0.05, 0.3, 7),
-            'B4': np.random.uniform(0.05, 0.3, 7),
-            'B5': np.random.uniform(0.1, 0.4, 7),
-            'B8': np.random.uniform(0.2, 0.6, 7),
-            'B11': np.random.uniform(0.1, 0.4, 7),
-            'B12': np.random.uniform(0.05, 0.3, 7),
-        })
+        # Fetch real satellite features first.
+        # Synthetic fallback is opt-in via env to avoid returning mock-backed outputs as if they were real.
+        window_size = 7
+        raw_df, used_client = _fetch_real_satellite_window_df(coordinates, window_size=window_size)
+        sentinel_client_used = used_client or None
+        used_synthetic_fallback = False
+        if raw_df is None or len(raw_df) == 0:
+            allow_synthetic_fallback = str(os.getenv("ALLOW_SYNTHETIC_FALLBACK", "false")).strip().lower() in ("1", "true", "yes", "on")
+            if not allow_synthetic_fallback:
+                raise RuntimeError(
+                    "Satellite data unavailable and synthetic fallback is disabled. "
+                    "Fix Sentinel credentials/account or set ALLOW_SYNTHETIC_FALLBACK=true for non-production testing."
+                )
+            used_synthetic_fallback = True
+            raw_df = _generate_synthetic_window_df(coordinates, window_size=window_size)
 
-        # Calculate derived indices with safe division
+        # Ensure all required derived indices exist.
         eps = 1e-6
-        raw_df['GNDVI'] = (raw_df['B8'] - raw_df['B3']) / (raw_df['B8'] + raw_df['B3'] + eps)
-        raw_df['SAVI'] = ((raw_df['B8'] - raw_df['B4']) / (raw_df['B8'] + raw_df['B4'] + 0.5 + eps)) * 1.5
-        raw_df['NDMI'] = (raw_df['B8'] - raw_df['B11']) / (raw_df['B8'] + raw_df['B11'] + eps)
-        raw_df['MSI'] = raw_df['B12'] / (raw_df['B8'] + eps)
-        raw_df['NDWI'] = (raw_df['B8'] - raw_df['B12']) / (raw_df['B8'] + raw_df['B12'] + eps)
-        raw_df['NMDI'] = (raw_df['B11'] - raw_df['B12']) / (raw_df['B11'] + raw_df['B12'] + eps)
-        raw_df['NDRE'] = (raw_df['B5'] - raw_df['B4']) / (raw_df['B5'] + raw_df['B4'] + eps)
-        raw_df['CIredEdge'] = (raw_df['B5'] - raw_df['B4']) / (raw_df['B5'] + raw_df['B4'] + eps)
-        raw_df['CIgreen'] = (raw_df['B3'] - raw_df['B4']) / (raw_df['B3'] + raw_df['B4'] + eps)
-        raw_df['PSRI'] = (raw_df['B4'] - raw_df['B3']) / (raw_df['B5'] + eps)
-        raw_df['SIPI'] = (raw_df['B8'] - raw_df['B4']) / (raw_df['B8'] + raw_df['B4'] + eps)
+        if "GNDVI" not in raw_df.columns:
+            raw_df["GNDVI"] = (raw_df["B8"] - raw_df["B3"]) / (raw_df["B8"] + raw_df["B3"] + eps)
+        if "SAVI" not in raw_df.columns:
+            raw_df["SAVI"] = ((raw_df["B8"] - raw_df["B4"]) / (raw_df["B8"] + raw_df["B4"] + 0.5 + eps)) * 1.5
+        if "NDMI" not in raw_df.columns:
+            raw_df["NDMI"] = (raw_df["B8"] - raw_df["B11"]) / (raw_df["B8"] + raw_df["B11"] + eps)
+        if "MSI" not in raw_df.columns:
+            raw_df["MSI"] = raw_df["B12"] / (raw_df["B8"] + eps)
+        if "NDWI" not in raw_df.columns:
+            raw_df["NDWI"] = (raw_df["B8"] - raw_df["B12"]) / (raw_df["B8"] + raw_df["B12"] + eps)
+        if "NMDI" not in raw_df.columns:
+            raw_df["NMDI"] = (raw_df["B11"] - raw_df["B12"]) / (raw_df["B11"] + raw_df["B12"] + eps)
+        if "NDRE" not in raw_df.columns:
+            raw_df["NDRE"] = (raw_df["B5"] - raw_df["B4"]) / (raw_df["B5"] + raw_df["B4"] + eps)
+        if "CIredEdge" not in raw_df.columns:
+            raw_df["CIredEdge"] = (raw_df["B5"] - raw_df["B4"]) / (raw_df["B5"] + raw_df["B4"] + eps)
+        if "CIgreen" not in raw_df.columns:
+            raw_df["CIgreen"] = (raw_df["B3"] - raw_df["B4"]) / (raw_df["B3"] + raw_df["B4"] + eps)
+        if "PSRI" not in raw_df.columns:
+            raw_df["PSRI"] = (raw_df["B4"] - raw_df["B3"]) / (raw_df["B5"] + eps)
+        if "SIPI" not in raw_df.columns:
+            raw_df["SIPI"] = (raw_df["B8"] - raw_df["B4"]) / (raw_df["B8"] + raw_df["B4"] + eps)
 
         # Features for model
         feature_cols = [
@@ -1911,15 +2433,16 @@ def predict_crop_analysis_new(farmer_id, crop_type, coordinates):
         stage_name = "Vegetative"
         stage_conf = 0.5
         stage_probs = np.array([0.5, 0.3, 0.2])
+        stage_idx = 0
         
         try:
             # Use absolute paths based on script directory to avoid relative path issues
             script_dir = os.path.dirname(os.path.abspath(__file__))
-            model_path = os.path.join(script_dir, f"models/{crop_type}_model.pt")
-            scaler_path = os.path.join(script_dir, f"scalers/{crop_type}_scaler.pkl")
+            model_path = _resolve_existing_path(script_dir, "models", "_model.pt", crop_type)
+            scaler_path = _resolve_existing_path(script_dir, "scalers", "_scaler.pkl", crop_type)
             
             # Validate files exist and are readable before loading
-            if os.path.exists(model_path) and os.path.exists(scaler_path) and os.path.isfile(model_path) and os.path.isfile(scaler_path):
+            if model_path and scaler_path and os.path.exists(model_path) and os.path.exists(scaler_path):
                 # Load model - handle multiple checkpoint formats
                 try:
                     checkpoint = torch.load(model_path, map_location=torch.device('cpu'))
@@ -1980,7 +2503,6 @@ def predict_crop_analysis_new(farmer_id, crop_type, coordinates):
                     )
                     model.eval()
                 
-                import pickle
                 try:
                     with open(scaler_path, 'rb') as f:
                         scaler = pickle.load(f)
@@ -2007,43 +2529,50 @@ def predict_crop_analysis_new(farmer_id, crop_type, coordinates):
         except Exception as e:
             print(f"Stage prediction error: {str(e)}", file=sys.stderr)
             stage_probs = np.array([0.5, 0.3, 0.2])
+            stage_idx = int(np.argmax(stage_probs))
 
-        # ======== DISEASE PREDICTION WITH MODEL ========
-        disease_prob = 0.15
-        disease_name = "Healthy"
-        disease_conf = 0.95
-        
-        try:
-            disease_model_path = f"models/{crop_type}_disease_resnet50.pth"
-            if os.path.exists(disease_model_path):
-                # For now, use heuristic based on NDVI and indices
-                ndvi_mean_val = raw_df['NDVI'].mean()
-                ndmi_mean_val = raw_df['NDMI'].mean()
-                
-                # Simple disease likelihood based on vegetation indices
-                if ndvi_mean_val < 0.3 or ndmi_mean_val < 0.1:
-                    disease_prob = 0.6
-                    disease_name = "Likely Diseased"
-                    disease_conf = 0.7
-                elif ndvi_mean_val > 0.6 and ndmi_mean_val > 0.4:
-                    disease_prob = 0.05
-                    disease_name = "Healthy"
-                    disease_conf = 0.95
-                else:
-                    disease_prob = 0.25
-                    disease_name = "Possibly Diseased"
-                    disease_conf = 0.65
-        except Exception as e:
-            print(f"Disease prediction error: {str(e)}", file=sys.stderr)
-            disease_prob = 0.15
+        # ======== DISEASE PREDICTION (MODEL-DRIVEN) ========
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        disease_probs, disease_fallback = _predict_multiclass_from_model(
+            crop_type=crop_type,
+            features=features,
+            base_dir=script_dir,
+            model_suffix="_transformer_disease_model.pth",
+            fallback_probs=np.array([0.75, 0.2, 0.05], dtype=np.float32),
+        )
+        # interpret probabilities (same logic as before)
+        if disease_probs.size >= 3:
+            disease_prob = float(disease_probs[1] * 0.5 + disease_probs[2])
+            risk_idx = int(np.argmax(disease_probs))
+            disease_name = "Healthy" if risk_idx == 0 else "Possibly Diseased" if risk_idx == 1 else "Likely Diseased"
+            disease_conf = float(disease_probs[risk_idx])
+        elif disease_probs.size == 2:
+            disease_prob = float(disease_probs[1])
+            disease_name = "Likely Diseased" if disease_prob >= 0.5 else "Healthy"
+            disease_conf = float(max(disease_probs[0], disease_probs[1]))
+        elif disease_probs.size == 1:
+            disease_prob = float(disease_probs[0])
+            disease_name = "Likely Diseased" if disease_prob >= 0.5 else "Healthy"
+            disease_conf = float(max(disease_prob, 1.0 - disease_prob))
+        else:
+            disease_prob = 0.2
+            disease_conf = 0.8
             disease_name = "Healthy"
+        used_disease_model = not disease_fallback
 
-        # ======== PEST PREDICTION ========
-        pest_probs = np.array([0.7, 0.2, 0.1])  # Low, Medium, High
+        # ======== PEST PREDICTION (MODEL-DRIVEN) ========
+        pest_probs, pest_fallback = _predict_multiclass_from_model(
+            crop_type=crop_type,
+            features=features,
+            base_dir=script_dir,
+            model_suffix="_transformer_pest_model.pth",
+            fallback_probs=np.array([0.7, 0.2, 0.1], dtype=np.float32),
+        )
         pest_idx = int(np.argmax(pest_probs))
         pest_names = ["Low", "Medium", "High"]
         pest_risk = pest_names[pest_idx]
         pest_conf = float(pest_probs[pest_idx])
+        used_pest_model = not pest_fallback
 
         # ======== GROWTH AND HEALTH METRICS ========
         ndvi_series = raw_df['NDVI'].values
@@ -2055,30 +2584,6 @@ def predict_crop_analysis_new(farmer_id, crop_type, coordinates):
         biomass_est = estimate_biomass_tons_ha(ndvi_mean, crop_type)
         overall_score = (growth_score + ndvi_max * 100) / 2.0 / 100.0
         
-        # Yield prediction based on NDVI and growth
-        yield_base = {
-            'rice': 5000,
-            'wheat': 4500,
-            'maize': 6000,
-            'chickpea': 2000,
-            'pigeon_pea': 2500,
-            'beans': 2200,
-            'lentils': 1800
-        }
-        
-        base_yield = yield_base.get(crop_type, 3500)
-        yield_score = (ndvi_mean * 0.7 + overall_score * 0.3)
-        est_yield = int(base_yield * yield_score)
-        
-        if yield_score > 0.75:
-            yield_category = "Excellent"
-        elif yield_score > 0.6:
-            yield_category = "Good"
-        elif yield_score > 0.45:
-            yield_category = "Fair"
-        else:
-            yield_category = "Poor"
-
         # ======== WATER STRESS ========
         window_mean_values = {
             'NDMI': raw_df['NDMI'].mean(),
@@ -2098,6 +2603,52 @@ def predict_crop_analysis_new(farmer_id, crop_type, coordinates):
             water_stress_level = "Moderate"
         else:
             water_stress_level = "Severe"
+
+        # ======== YIELD PREDICTION (ANALYSIS-DRIVEN, NO PLACEHOLDERS) ========
+        growth_rate_val = float(growth_rate_score(ndvi_series))
+        biomass_score_val = float(biomass_score(ndvi_series))
+        stability_val = float(stability_score(ndvi_series))
+        stage_progress_val = float(stage_progress_score(ndvi_series, stage_idx + 1))
+        water_component_val = float(np.clip(100.0 - stress_score, 0, 100))
+
+        base_score = (
+            0.28 * biomass_score_val +
+            0.22 * growth_rate_val +
+            0.18 * stability_val +
+            0.17 * stage_progress_val +
+            0.15 * water_component_val
+        )
+        disease_penalty = float(np.clip(disease_prob * 0.25, 0.0, 0.25))
+        pest_penalty = 0.2 if pest_idx == 2 else (0.1 if pest_idx == 1 else 0.0)
+        total_penalty = float(min(0.5, disease_penalty + pest_penalty))
+        yield_score = float(np.clip(base_score * (1.0 - total_penalty), 0, 100))
+
+        if GROWTH_PERFORMANCE_AVAILABLE:
+            est_yield, _ = gp_estimate_yield_kg_ha(
+                yield_score=yield_score,
+                crop_type=_normalize_crop_for_yield(crop_type),
+                stage=stage_idx + 1,
+            )
+            yield_category = gp_get_yield_category(yield_score)
+        else:
+            est_yield = float(3500 * (yield_score / 100.0))
+            yield_category = {
+                "name": "high" if yield_score >= 70 else "medium" if yield_score >= 40 else "low",
+                "label": "High Yield" if yield_score >= 70 else "Medium Yield" if yield_score >= 40 else "Low Yield",
+                "color": "#6BCF7F" if yield_score >= 70 else "#FFD93D" if yield_score >= 40 else "#FF6B6B",
+            }
+
+        yield_component_scores = {
+            "growth_rate": growth_rate_val,
+            "biomass": biomass_score_val,
+            "stability": stability_val,
+            "stage_progress": stage_progress_val,
+            "water_component": water_component_val,
+            "base_score": float(base_score),
+            "disease_penalty": float(disease_penalty * 100.0),
+            "pest_penalty": float(pest_penalty * 100.0),
+            "final_score": yield_score,
+        }
         
         water_stress = {
             "stress_level": water_stress_level,
@@ -2114,6 +2665,7 @@ def predict_crop_analysis_new(farmer_id, crop_type, coordinates):
             "success": True,
             "farmerId": farmer_id,
             "cropType": crop_type,
+            "analysis_data_source": "synthetic_fallback" if used_synthetic_fallback else "sentinel_real",
             "stage": {
                 "prediction": stage_name,
                 "confidence": stage_conf,
@@ -2127,7 +2679,12 @@ def predict_crop_analysis_new(farmer_id, crop_type, coordinates):
                 "prediction": disease_name,
                 "probability": disease_prob,
                 "confidence": disease_conf,
-                "risk_level": "LOW" if disease_prob < 0.3 else "MEDIUM" if disease_prob < 0.6 else "HIGH"
+                "risk_level": "LOW" if disease_prob < 0.3 else "MEDIUM" if disease_prob < 0.6 else "HIGH",
+                "probabilities": {
+                    "Low": float(disease_probs[0]) if len(disease_probs) > 0 else float(1.0 - disease_prob),
+                    "Medium": float(disease_probs[1]) if len(disease_probs) > 1 else float(disease_prob * 0.5),
+                    "High": float(disease_probs[2]) if len(disease_probs) > 2 else float(disease_prob * 0.5),
+                }
             },
             "pest": {
                 "risk_level": pest_risk,
@@ -2148,9 +2705,9 @@ def predict_crop_analysis_new(farmer_id, crop_type, coordinates):
             },
             "yield": {
                 "score": float(yield_score),
-                "estimated_yield_kg_ha": est_yield,
+                "estimated_yield_kg_ha": float(est_yield),
                 "category": yield_category,
-                "confidence": float(yield_score)
+                "confidence": float((stage_conf + disease_conf + pest_conf) / 3.0)
             },
             "waterStress": water_stress,
             "ndviTrend": [
@@ -2165,14 +2722,14 @@ def predict_crop_analysis_new(farmer_id, crop_type, coordinates):
             "timestamp": datetime.now().isoformat(),
             "penalties": {
                 "disease_penalty": disease_prob,
-                "pest_penalty": pest_probs[2] if len(pest_probs) > 2 else 0.1,
+                "pest_penalty": float(yield_component_scores.get("pest_penalty", 0.0) / 100.0) if yield_component_scores else float(pest_probs[2] if len(pest_probs) > 2 else 0.1),
                 "disease_level": {
                     "label": "Low" if disease_prob < 0.3 else "Medium" if disease_prob < 0.6 else "High",
                     "multiplier": disease_prob
                 },
                 "pest_level": {
                     "label": "Low" if pest_risk == "Low" else "Medium" if pest_risk == "Medium" else "High",
-                    "multiplier": pest_probs[2] if len(pest_probs) > 2 else 0.1
+                    "multiplier": float(yield_component_scores.get("pest_penalty", 0.0) / 100.0) if yield_component_scores else float(pest_probs[2] if len(pest_probs) > 2 else 0.1)
                 }
             }
         }
@@ -2244,7 +2801,12 @@ if __name__ == "__main__":
                         },
                         "disease_detection": {
                             "risk_level": result.get("disease", {}).get("risk_level", "LOW"),
-                            "disease_prob": result.get("disease", {}).get("probability", 0)
+                            "disease_prob": result.get("disease", {}).get("probability", 0),
+                            "prediction": result.get("disease", {}).get("prediction", "Unknown Disease")
+                        },
+                        "disease_classification": {
+                            "output": result.get("disease", {}).get("prediction", "Unknown Disease"),
+                            "confidence": result.get("disease", {}).get("confidence", 0)
                         },
                         "pest_risk": {
                             "risk_level": result.get("pest", {}).get("risk_level", "Low"),

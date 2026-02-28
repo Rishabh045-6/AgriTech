@@ -124,7 +124,14 @@ def get_days_since_update(last_updated_str):
     try:
         if not last_updated_str:  # Handle None, empty string, or null
             return 0
-        update_date = datetime.strptime(last_updated_str, "%Y-%m-%d")
+        # Accept both date-only and ISO datetime payloads.
+        if isinstance(last_updated_str, str):
+            try:
+                update_date = datetime.fromisoformat(last_updated_str.replace("Z", "+00:00"))
+            except ValueError:
+                update_date = datetime.strptime(last_updated_str, "%Y-%m-%d")
+        else:
+            return 0
         current_date = datetime.now()
         days_diff = (current_date - update_date).days
         return max(0, days_diff)
@@ -172,7 +179,16 @@ def format_risk_level(risk_level):
 
 def get_disease_name(features_data):
     disease_class = features_data.get("disease_classification", {})
-    return disease_class.get("output", "Unknown Disease")
+    if disease_class.get("output"):
+        return disease_class.get("output")
+
+    disease_detection = features_data.get("disease_detection", {})
+    if disease_detection.get("prediction"):
+        return disease_detection.get("prediction")
+    if disease_detection.get("disease_name"):
+        return disease_detection.get("disease_name")
+
+    return "Unknown Disease"
 
 def get_priority_badge_text(priority_level):
     """Get plain text for priority."""

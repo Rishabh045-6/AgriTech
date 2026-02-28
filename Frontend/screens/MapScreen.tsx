@@ -81,8 +81,8 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
   }, [farmerId, selectedCrop, navigation, requestLocationPermission]);
 
   const [region, setRegion] = useState({
-    latitude: 26.163054622, // Default to your area
-    longitude: 91.738211922,
+    latitude: 23.1989, // Default start location
+    longitude: 77.09443,
     latitudeDelta: 0.01,
     longitudeDelta: 0.01,
   });
@@ -238,6 +238,7 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
         zoomEnabled={true}
         pitchEnabled={false}
         rotateEnabled={false}
+        mapType="satellite"
       // Remove unnecessary props that cause re-renders
       >
         {points.map((point, index) => (
