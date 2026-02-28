@@ -9,6 +9,7 @@
     ActivityIndicator
   } from 'react-native';
   import AsyncStorage from '@react-native-async-storage/async-storage';
+  import { apiFetch } from '../config/api';
 
   type LoginScreenProps = {
     navigation: any;
@@ -28,12 +29,7 @@
 
       try {
         // Production API URL - FIXED: No process usage
-        const isDevelopment = __DEV__;
-        const API_BASE_URL = !isDevelopment
-          ? 'https://your-agritech-backend.azurewebsites.net'  // Your Azure URL
-          : 'http://10.67.11.81:3001';  // Local dev
-
-        const response = await fetch(`${API_BASE_URL}/api/login`, {
+        const response = await apiFetch(`/api/login`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

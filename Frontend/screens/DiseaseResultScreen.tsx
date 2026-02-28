@@ -9,12 +9,7 @@ import {
   ActivityIndicator,
   Platform
 } from 'react-native';
-
-const API_URL =
-  Platform.OS === 'android'
-    ? 'http://10.67.11.81:3001'
-    : 'http://localhost:3001';
-
+import { apiFetch } from '../config/api';
 type DiseaseResultScreenProps = {
   route: any;
   navigation: any;
@@ -63,7 +58,7 @@ export default function DiseaseResultScreen({ route, navigation }: DiseaseResult
         }
       };
 
-      const response = await fetch(`${API_URL}/api/generate-recommendations`, {
+      const response = await apiFetch(`/api/generate-recommendations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

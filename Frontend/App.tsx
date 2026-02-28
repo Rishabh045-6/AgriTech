@@ -10,6 +10,7 @@ import CropSelectionScreen from './screens/CropSelectionScreen';
 import DiseaseResultScreen from './screens/DiseaseResultScreen';
 import PestResultScreen from './screens/PestResultScreen';
 import StageResultScreen from './screens/StageResultsScreen';
+import { API_BASE_URL } from './config/api';
 
 export type RootStackParamList = {
   Login: undefined;
@@ -25,15 +26,8 @@ export type RootStackParamList = {
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-// Production API URL - FIXED: No process usage
-const isDevelopment = __DEV__; // React Native's built-in flag
-
-const API_BASE_URL = !isDevelopment
-  ? 'https://your-agritech-backend.azurewebsites.net'  // Your Azure App Service URL
-  : 'http://10.67.11.81:3001';  // Local dev (Android)
-
 // Global configuration
-(globalThis as any).API_BASE_URL = API_BASE_URL;
+(globalThis as any).API_BASE_URL = API_BASE_URL; // Make API_BASE_URL globally accessible
 
 export default function App() {
   return (

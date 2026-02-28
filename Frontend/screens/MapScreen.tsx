@@ -13,6 +13,7 @@ import {
 import MapView, { Polygon, Marker } from 'react-native-maps';
 import Geolocation from '@react-native-community/geolocation';
 import { PermissionsAndroid } from 'react-native';
+import { apiFetch } from '../config/api';
 
 type MapScreenProps = {
   route: any;
@@ -123,10 +124,6 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
     setLoadingMessage('Loading results using satellite data...');
 
     try {
-      const API_URL = Platform.OS === 'android'
-        ? 'http://10.67.11.81:3001'
-        : 'http://localhost:3001';
-
       // Get unique coordinates
       const uniqueCoordinates = points.map(p => ({
         latitude: p.latitude,
@@ -144,7 +141,7 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
       }
 
       // Save plot to database
-      const saveResponse = await fetch(`${API_URL}/api/save-plot`, {
+      const saveResponse = await apiFetch(`/api/save-plot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -160,14 +157,19 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
       }
 
       // Get model results from backend
-      const response = await fetch(`${API_URL}/api/run-model`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          farmerId,
-          cropType: selectedCrop,
-        }),
-      });
+      // model prediction may take a while, give it up to 60 seconds
+      const response = await apiFetch(
+        `/api/run-model`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            farmerId,
+            cropType: selectedCrop,
+          }),
+        },
+        60000 // 60 second timeout
+      );
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -185,7 +187,11 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
 
     } catch (error: any) {
       console.error('Model error:', error);
-      Alert.alert('❌ Error', 'Failed to analyze crop');
+      // show a more helpful error message if available
+      Alert.alert(
+        '❌ Analysis failed',
+        error?.message || 'Failed to analyze crop. Please try again.'
+      );
     } finally {
       setIsLoading(false);
     }

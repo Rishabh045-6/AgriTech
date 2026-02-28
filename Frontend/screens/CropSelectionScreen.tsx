@@ -9,6 +9,7 @@ import {
   Alert,
   ActivityIndicator
 } from 'react-native';
+import { apiFetch } from '../config/api';
 
 type CropSelectionScreenProps = {
   route: any;
@@ -30,6 +31,7 @@ export default function CropSelectionScreen({ route, navigation }: CropSelection
     { value: 'lentils', label: 'Lentils', color: '#FF9800' }
   ];
 
+
   const handleCropSelect = (crop: string) => {
     setSelectedCrop(crop);
   };
@@ -43,16 +45,20 @@ export default function CropSelectionScreen({ route, navigation }: CropSelection
     setLoading(true); // ✅ Start loading
 
     try {
-      const API_URL = 'http://10.67.11.81:3001';
+      
 
-      const response = await fetch(`${API_URL}/api/run-model`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          farmerId,
-          cropType: selectedCrop
-        }),
-      });
+      const response = await apiFetch(
+        `/api/run-model`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            farmerId,
+            cropType: selectedCrop
+          }),
+        },
+        60000 // give model a minute
+      );
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -70,7 +76,7 @@ export default function CropSelectionScreen({ route, navigation }: CropSelection
 
     } catch (error: any) {
       console.error('Model error:', error);
-      Alert.alert('❌ Error', 'Failed to analyze crop');
+      Alert.alert('❌ Analysis failed', error?.message || 'Failed to analyze crop');
     } finally {
       setLoading(false); // ✅ Stop loading
     }

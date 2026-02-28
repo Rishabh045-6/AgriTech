@@ -8,11 +8,7 @@ import {
     TouchableOpacity,
     Platform,
 } from 'react-native';
-
-const API_URL =
-    Platform.OS === 'android'
-        ? 'http://10.67.11.81:3001' // Make sure this IP is correct for your backend server
-        : 'http://localhost:3001';
+import { apiFetch } from '../config/api';
 
 interface RecommendationItemProps {
     title: string;
@@ -119,7 +115,7 @@ const RecommendationsSystem: React.FC<RecommendationsSystemProps> = ({
             setLoading(true);
             setError(null);
 
-            const response = await fetch(`${API_URL}/api/generate-recommendations`, {
+            const response = await apiFetch(`/api/generate-recommendations`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

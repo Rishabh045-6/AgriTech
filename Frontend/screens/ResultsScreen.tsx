@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 // Import the RecommendationsSystem component
 import RecommendationsSystem from './RecommendationsSystem';
+import { apiFetch } from '../config/api';
 
 /* =========================
    Helper functions
@@ -233,16 +234,20 @@ export default function ResultsScreen({ route, navigation }: any) {
 
   const fetchResults = useCallback(async () => {
     try {
-      const API_URL =
-        Platform.OS === 'android'
-          ? 'http://10.67.11.81:3001'
-          : 'http://localhost:3001';
+      const response = await apiFetch(
+        `/api/run-model`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ farmerId, cropType })
+        },
+        60000
+      );
 
-      const response = await fetch(`${API_URL}/api/run-model`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ farmerId, cropType })
-      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`HTTP ${response.status}: ${text}`);
+      }
 
       const data = await response.json();
       setResults(data);
