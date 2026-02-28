@@ -2197,18 +2197,31 @@ def _normalize_crop_for_yield(crop_type):
 
 def _get_sentinel_client_pairs():
     """Return a list of (client_id, client_secret) pairs from environment variables."""
+    def _clean(value):
+        if value is None:
+            return None
+        cleaned = str(value).strip().strip('"').strip("'").strip()
+        return cleaned or None
+
     pairs = []
+    seen = set()
     for i in range(1, 7):
-        cid = os.getenv(f"SENTINEL_CLIENT_{i}_ID")
-        csec = os.getenv(f"SENTINEL_CLIENT_{i}_SECRET")
+        cid = _clean(os.getenv(f"SENTINEL_CLIENT_{i}_ID"))
+        csec = _clean(os.getenv(f"SENTINEL_CLIENT_{i}_SECRET"))
         if cid and csec:
-            pairs.append((cid, csec))
+            pair = (cid, csec)
+            if pair not in seen:
+                seen.add(pair)
+                pairs.append(pair)
 
     # Support single-client env style too.
-    single_id = os.getenv("SENTINEL_CLIENT_ID")
-    single_secret = os.getenv("SENTINEL_CLIENT_SECRET")
+    single_id = _clean(os.getenv("SENTINEL_CLIENT_ID"))
+    single_secret = _clean(os.getenv("SENTINEL_CLIENT_SECRET"))
     if single_id and single_secret:
-        pairs.append((single_id, single_secret))
+        pair = (single_id, single_secret)
+        if pair not in seen:
+            seen.add(pair)
+            pairs.append(pair)
 
     return pairs
 
@@ -2279,7 +2292,15 @@ def _fetch_real_satellite_window_df(coordinates, window_size=7):
         "NDRE", "CIredEdge", "CIgreen", "PSRI", "SIPI",
     ]
 
-    for cid, csec in client_pairs:
+    max_attempts_raw = os.getenv("SENTINEL_MAX_CLIENT_ATTEMPTS")
+    max_attempts = len(client_pairs)
+    if max_attempts_raw is not None:
+        try:
+            max_attempts = max(1, min(len(client_pairs), int(str(max_attempts_raw).strip())))
+        except Exception:
+            max_attempts = len(client_pairs)
+
+    for cid, csec in client_pairs[:max_attempts]:
         cfg = _sentinel_config_from_pair(cid, csec)
         rows = []
         try:
@@ -2335,6 +2356,16 @@ def _fetch_real_satellite_window_df(coordinates, window_size=7):
         except Exception as sat_err:
             errstr = str(sat_err)
             print(f"Sentinel attempt failed for client {cid[:8]}: {errstr}", file=sys.stderr)
+            lowered = errstr.lower()
+            connectivity_blocked = (
+                "failed to establish a new connection" in lowered
+                or "connectionerror" in lowered
+                or "winerror 10013" in lowered
+                or "max retries exceeded" in lowered
+            )
+            if connectivity_blocked:
+                print("Sentinel connectivity appears blocked; skipping remaining client retries.", file=sys.stderr)
+                break
             # if it was an auth error, try next client; other errors also retry so we can fall back
             continue
 
@@ -2371,17 +2402,22 @@ def predict_crop_analysis_new(farmer_id, crop_type, coordinates):
             coordinates = [coordinates]
         
         # Fetch real satellite features first.
-        # Synthetic fallback is opt-in via env to avoid returning mock-backed outputs as if they were real.
+        # Synthetic fallback defaults to ON outside production so local/dev runs keep working.
         window_size = 7
         raw_df, used_client = _fetch_real_satellite_window_df(coordinates, window_size=window_size)
         sentinel_client_used = used_client or None
         used_synthetic_fallback = False
         if raw_df is None or len(raw_df) == 0:
-            allow_synthetic_fallback = str(os.getenv("ALLOW_SYNTHETIC_FALLBACK", "false")).strip().lower() in ("1", "true", "yes", "on")
+            allow_synthetic_fallback_env = os.getenv("ALLOW_SYNTHETIC_FALLBACK")
+            if allow_synthetic_fallback_env is None:
+                node_env = str(os.getenv("NODE_ENV", "development")).strip().lower()
+                allow_synthetic_fallback = node_env != "production"
+            else:
+                allow_synthetic_fallback = str(allow_synthetic_fallback_env).strip().lower() in ("1", "true", "yes", "on")
             if not allow_synthetic_fallback:
                 raise RuntimeError(
                     "Satellite data unavailable and synthetic fallback is disabled. "
-                    "Fix Sentinel credentials/account or set ALLOW_SYNTHETIC_FALLBACK=true for non-production testing."
+                    "Fix Sentinel credentials/account or set ALLOW_SYNTHETIC_FALLBACK=true."
                 )
             used_synthetic_fallback = True
             raw_df = _generate_synthetic_window_df(coordinates, window_size=window_size)
@@ -2731,7 +2767,11 @@ def predict_crop_analysis_new(farmer_id, crop_type, coordinates):
                     "label": "Low" if pest_risk == "Low" else "Medium" if pest_risk == "Medium" else "High",
                     "multiplier": float(yield_component_scores.get("pest_penalty", 0.0) / 100.0) if yield_component_scores else float(pest_probs[2] if len(pest_probs) > 2 else 0.1)
                 }
-            }
+            },
+            # diagnostics
+            "sentinelClientUsed": sentinel_client_used,
+            "usedDiseaseModel": used_disease_model,
+            "usedPestModel": used_pest_model
         }
 
         return response

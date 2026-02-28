@@ -63,7 +63,7 @@
     return (
       <View style={styles.container}>
         <View style={styles.loginCard}>
-          <Text style={styles.title}>🌾 Agritech</Text>
+          <Text style={styles.title}>🌾 FieldSense</Text>
           <Text style={styles.subtitle}>Crop Analysis System</Text>
 
           <Text style={styles.label}>Enter Your Name</Text>
