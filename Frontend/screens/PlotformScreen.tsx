@@ -4,9 +4,7 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  Alert,
-  Platform,
-  ActivityIndicator
+  Alert
 } from 'react-native';
 
 type PlotFormScreenProps = {
@@ -18,7 +16,6 @@ export default function PlotFormScreen({ route, navigation }: PlotFormScreenProp
   const { farmerId, username } = route.params || {};
   
   const [selectedCrop, setSelectedCrop] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
 
   const CROPS = [
     { name: 'rice', label: 'Rice' },

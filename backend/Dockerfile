@@ -1,51 +1,27 @@
-FROM node:18-bookworm
+# backend/Dockerfile
+FROM node:18-alpine
 
-# -------------------------
-# System dependencies (Python + geo + build)
-# -------------------------
-RUN apt-get update && apt-get install -y \
-    python3 \
-    python3-pip \
-    python3-dev \
-    build-essential \
-    gdal-bin \
-    libgdal-dev \
-    libgeos-dev \
-    && rm -rf /var/lib/apt/lists/*
+# Install Python and other dependencies for Python scripts
+RUN apk add --no-cache python3 py3-pip
 
-# Make `python` command available
-RUN ln -s /usr/bin/python3 /usr/bin/python
-
-# -------------------------
-# App directory
-# -------------------------
 WORKDIR /app
 
-# -------------------------
-# Node backend dependencies ONLY
-# (CRITICAL: backend path)
-# -------------------------
-COPY backend/package.json backend/package-lock.json ./
-RUN npm ci --omit=dev
+# Copy package files first for better caching
+COPY package*.json ./
 
-# -------------------------
-# Python dependencies
-# -------------------------
-COPY backend/requirements.txt .
-RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
+# Install dependencies
+RUN npm ci --only=production
 
+# Copy application code
+COPY . .
 
-# -------------------------
-# Backend source code
-# -------------------------
-COPY backend/. .
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs
+RUN adduser -S nextjs -u 1001
+USER nextjs
 
-# -------------------------
 # Expose port
-# -------------------------
-EXPOSE 8080
+EXPOSE 3001
 
-# -------------------------
-# Start server
-# -------------------------
-CMD ["node", "server.js"]
+# Start the application
+CMD ["npm", "start"]

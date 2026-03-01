@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,9 @@ import {
   TouchableOpacity,
   ActivityIndicator
 } from 'react-native';
+// Import the RecommendationsSystem component
+import RecommendationsSystem from './RecommendationsSystem';
+import { apiFetch } from '../config/api';
 
 /* =========================
    Helper functions
@@ -121,20 +124,18 @@ type WaterStressLevel =
   | 'Moderate Stress'
   | 'Severe Stress';
 
-
 const WaterStressCard = ({ waterStress }: { waterStress: any }) => {
   if (!waterStress || !waterStress.current_status) return null;
 
-const WATER_STRESS_COLORS: Record<WaterStressLevel, string> = {
-  Optimal: '#4CAF50',
-  'Mild Stress': '#FFC107',
-  'Moderate Stress': '#FF9800',
-  'Severe Stress': '#F44336'
-};
+  const WATER_STRESS_COLORS: Record<WaterStressLevel, string> = {
+    Optimal: '#4CAF50',
+    'Mild Stress': '#FFC107',
+    'Moderate Stress': '#FF9800',
+    'Severe Stress': '#F44336'
+  };
 
-const level = waterStress.current_status.moisture_status as WaterStressLevel;
-const statusColor = WATER_STRESS_COLORS[level] ?? '#666';
-
+  const level = waterStress.current_status.moisture_status as WaterStressLevel;
+  const statusColor = WATER_STRESS_COLORS[level] ?? '#666';
 
   return (
     <View style={styles.resultCard}>
@@ -225,33 +226,28 @@ const ConfidenceMeterCard = ({ stage, disease, pest }: { stage: any; disease: an
    Main Screen
 ========================= */
 export default function ResultsScreen({ route, navigation }: any) {
-  const { farmerId, cropType, modelResults } = route.params;
+  const { farmerId, cropType, modelResults, plotId } = route.params; // Add plotId to params
 
   const [results, setResults] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (modelResults) {
-      setResults(modelResults);
-      setLoading(false);
-    } else {
-      fetchResults();
-    }
-  }, []);
-
-  const fetchResults = async () => {
+  const fetchResults = useCallback(async () => {
     try {
-      const isDevelopment = __DEV__;
-      const API_URL = !isDevelopment
-        ? 'https://your-agritech-backend.azurewebsites.net'  // Your Azure URL
-        : 'http://10.67.9.194:3001';  // Local dev
+      const response = await apiFetch(
+        `/api/run-model`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ farmerId, cropType })
+        },
+        60000
+      );
 
-      const response = await fetch(`${API_URL}/api/run-model`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ farmerId, cropType })
-      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`HTTP ${response.status}: ${text}`);
+      }
 
       const data = await response.json();
       setResults(data);
@@ -260,7 +256,16 @@ export default function ResultsScreen({ route, navigation }: any) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [farmerId, cropType]);
+
+  useEffect(() => {
+    if (modelResults) {
+      setResults(modelResults);
+      setLoading(false);
+    } else {
+      fetchResults();
+    }
+  }, [modelResults, fetchResults]);
 
   if (loading) {
     return (
@@ -280,6 +285,28 @@ export default function ResultsScreen({ route, navigation }: any) {
       </View>
     );
   }
+
+  // Aggregate features from the results for the RecommendationsSystem
+  const aggregatedFeatures = {
+    // Example mapping - adjust based on your actual modelResults structure
+    disease_detection: {
+      risk_level: results.disease?.risk_level || "unknown",
+      disease_prob: results.disease?.probability || 0
+    },
+    pest_risk: {
+      risk_level: results.pest?.risk_level || "unknown",
+      confidence: results.pest?.confidence || 0
+    },
+    water_stress: {
+      stress: results.waterStress?.current_status?.moisture_status || "unknown",
+      score: results.waterStress?.current_status?.water_stress || 0
+    },
+    nutrient_deficiency: results.nutrientDeficiency || {}, // Assuming this comes from results
+    stage_classifier: {
+      stage: results.stage?.prediction || "unknown"
+    },
+    // Add other features if available in results
+  };
 
   return (
     <ScrollView style={styles.container}>
@@ -301,10 +328,22 @@ export default function ResultsScreen({ route, navigation }: any) {
       )}
 
 
+      <View style={{ marginBottom: 16 }}>
+        <RecommendationsSystem
+          farmerId={farmerId}
+          plotId={plotId}
+          plotFeatures={aggregatedFeatures}
+          directRecommendations={results?.recommendations}
+          recommendationDetails={results?.recommendation_details}
+        />
+      </View>
+
+
       {/* Add this to your main component after the confidence meter*/}
       {results && results.waterStress && (
         <WaterStressCard waterStress={results.waterStress} />
       )}
+
 
       {/* Navigation Cards */}
       <ResultNavCard
@@ -319,7 +358,7 @@ export default function ResultsScreen({ route, navigation }: any) {
         title="🦠 Disease Analysis"
         subtitle={`Risk: ${results.disease.risk_level}`}
         onPress={() =>
-          navigation.navigate('DiseaseResult', { results, cropType })
+          navigation.navigate('DiseaseResult', { results, cropType, recommendations: results?.recommendations, recommendationDetails: results?.recommendation_details, plotId, farmerId })
         }
       />
 
@@ -327,7 +366,7 @@ export default function ResultsScreen({ route, navigation }: any) {
         title="🐛 Pest Analysis"
         subtitle={`Risk: ${results.pest.risk_level}`}
         onPress={() =>
-          navigation.navigate('PestResult', { results, cropType })
+          navigation.navigate('PestResult', { results, cropType, recommendations: results?.recommendations, recommendationDetails: results?.recommendation_details, plotId, farmerId })
         }
       />
 

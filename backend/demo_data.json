@@ -1,0 +1,186 @@
+{
+  "farmer_id": "DEMO_FARMER_001",
+  "active_plot": "FIELD_001",
+  "plots": [
+    {
+      "plot_id": "FIELD_001",
+      "plot_name": "North Field",
+      "current_crop": "rice",
+      "field_area_ha": 2.5,
+      "location": {
+        "latitude": 19.0760,
+        "longitude": 72.8777,
+        "village": "Demo Village",
+        "district": "Mumbai Suburban"
+      },
+      "last_updated": "2024-01-15",
+      "features_data": {
+        "disease_classification": {
+          "output": "Rice Blast",
+          "timestamp": "2024-01-15"
+        },
+        "disease_detection": {
+          "disease_prob": 0.87,
+          "risk_level": "high",
+          "timestamp": "2024-01-15"
+        },
+        "growth_performance": {
+          "score": 68,
+          "timestamp": "2024-01-15"
+        },
+        "nutrient_deficiency": {
+          "nitrogen": "high_deficiency",
+          "chlorophyll": "moderate",
+          "phosphorus": "possible",
+          "potassium": "insufficient_data",
+          "timestamp": "2024-01-15"
+        },
+        "pest_risk": {
+          "risk_level": "medium",
+          "confidence": 0.78,
+          "timestamp": "2024-01-15"
+        },
+        "stage_classifier": {
+          "stage": "tillering",
+          "timestamp": "2024-01-15"
+        },
+        "water_stress": {
+          "score": 42,
+          "stress": "moderate",
+          "timestamp": "2024-01-15"
+        },
+        "yield_prediction": {
+          "score": 72,
+          "estimated_yield_kg_ha": 3200,
+          "total_field_yield_quintals": 80,
+          "timestamp": "2024-01-15"
+        },
+        "vegetation_indices": {
+          "ndvi": 0.65,
+          "gndvi": 0.58,
+          "savi": 0.72,
+          "ndmi": 0.45,
+          "msi": 0.32,
+          "ndwi": 0.38,
+          "nmd": 0.52,
+          "ndre": 0.41,
+          "ci_rededge": 1.8,
+          "ci_green": 1.5,
+          "psri": 0.12,
+          "sipi": 1.2,
+          "timestamp": "2024-01-15"
+        }
+      },
+      "history": {
+        "2024-01-14": {
+          "disease_detection": {
+            "disease_prob": 0.42,
+            "risk_level": "medium"
+          },
+          "nutrient_deficiency": {
+            "nitrogen": "moderate_deficiency",
+            "chlorophyll": "low"
+          }
+        },
+        "2024-01-13": {
+          "disease_detection": {
+            "disease_prob": 0.28,
+            "risk_level": "low"
+          },
+          "water_stress": {
+            "score": 38,
+            "stress": "mild"
+          }
+        }
+      }
+    },
+    {
+      "plot_id": "FIELD_002",
+      "plot_name": "South Field",
+      "current_crop": "wheat",
+      "field_area_ha": 1.8,
+      "location": {
+        "latitude": 19.0759,
+        "longitude": 72.8778,
+        "village": "Demo Village",
+        "district": "Mumbai Suburban"
+      },
+      "last_updated": "2024-01-15",
+      "features_data": {
+        "disease_classification": {
+          "output": "Wheat Rust",
+          "timestamp": "2024-01-15"
+        },
+        "disease_detection": {
+          "disease_prob": 0.65,
+          "risk_level": "medium",
+          "timestamp": "2024-01-15"
+        },
+        "growth_performance": {
+          "score": 75,
+          "timestamp": "2024-01-15"
+        },
+        "nutrient_deficiency": {
+          "nitrogen": "moderate_deficiency",
+          "chlorophyll": "optimal",
+          "phosphorus": "possible",
+          "potassium": "possible",
+          "timestamp": "2024-01-15"
+        },
+        "pest_risk": {
+          "risk_level": "low",
+          "confidence": 0.65,
+          "timestamp": "2024-01-15"
+        },
+        "stage_classifier": {
+          "stage": "jointing",
+          "timestamp": "2024-01-15"
+        },
+        "water_stress": {
+          "score": 55,
+          "stress": "mild",
+          "timestamp": "2024-01-15"
+        },
+        "yield_prediction": {
+          "score": 80,
+          "estimated_yield_kg_ha": 4200,
+          "total_field_yield_quintals": 75.6,
+          "timestamp": "2024-01-15"
+        },
+        "vegetation_indices": {
+          "ndvi": 0.72,
+          "gndvi": 0.65,
+          "savi": 0.78,
+          "ndmi": 0.52,
+          "msi": 0.28,
+          "ndwi": 0.42,
+          "nmd": 0.58,
+          "ndre": 0.48,
+          "ci_rededge": 1.9,
+          "ci_green": 1.6,
+          "psri": 0.08,
+          "sipi": 1.3,
+          "timestamp": "2024-01-15"
+        }
+      },
+      "history": {
+        "2024-01-14": {
+          "disease_detection": {
+            "disease_prob": 0.55,
+            "risk_level": "medium"
+          },
+          "water_stress": {
+            "score": 52,
+            "stress": "mild"
+          }
+        },
+        "2024-01-13": {
+          "disease_detection": {
+            "disease_prob": 0.45,
+            "risk_level": "low"
+          }
+        }
+      }
+    }
+  ]
+}

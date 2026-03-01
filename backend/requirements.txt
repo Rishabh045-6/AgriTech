@@ -1,7 +1,6 @@
-numpy
-pandas
-torch
-shapely
-scikit-learn
-scipy
-requests
+torch==2.1.0
+pandas==2.1.4
+numpy==1.26.4
+sentinelhub==3.8.0
+shapely==2.0.2
+scikit-learn==1.3.2

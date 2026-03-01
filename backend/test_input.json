@@ -1,0 +1,1 @@
+{"plot_id":"test1","farmer_id":"farmer1","features_data":{"disease_detection":{"risk_level":"low","probability":0.2},"water_stress":{"stress":"moderate","score":50},"pest_risk":{"risk_level":"low","confidence":0.8},"stage_classifier":{"stage":"vegetative"}},"current_crop":"wheat"}

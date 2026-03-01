@@ -10,11 +10,8 @@ services:
       - "3001:3001"
     environment:
       - NODE_ENV=production
-      - PGHOST=postgres
-      - PGPORT=5432
-      - PGDATABASE=agritech_prod
-      - PGUSER=agritech_user
-      - PGPASSWORD=${DB_PASSWORD}
+      - DB_HOST=postgres
+      - DB_PORT=5432
       - DB_NAME=agritech_prod
       - DB_USER=agritech_user
       - DB_PASSWORD=${DB_PASSWORD}

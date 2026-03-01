@@ -84,6 +84,7 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0"
+        buildConfigField "String", "IP_ADDRESS", "\"${System.getenv("IP_ADDRESS") ?: "10.0.2.2"}\""
     }
     signingConfigs {
         debug {

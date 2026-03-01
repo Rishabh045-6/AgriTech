@@ -13,59 +13,19 @@ import {
 import MapView, { Polygon, Marker } from 'react-native-maps';
 import Geolocation from '@react-native-community/geolocation';
 import { PermissionsAndroid } from 'react-native';
+import { apiFetch } from '../config/api';
 
 type MapScreenProps = {
   route: any;
   navigation: any;
 };
 
+
+
 export default function MapScreen({ route, navigation }: MapScreenProps) {
-  const { farmerId, username, selectedCrop } = route.params || {};
-  
-  const [region, setRegion] = useState({
-    latitude: 26.163054622, // Default to your area
-    longitude: 91.738211922,
-    latitudeDelta: 0.01,
-    longitudeDelta: 0.01,
-  });
-  
-  const [points, setPoints] = useState<{ latitude: number; longitude: number }[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [loadingMessage, setLoadingMessage] = useState('Analyzing crop data...');
-  const mapRef = useRef<MapView>(null);
 
-  useEffect(() => {
-    if (!farmerId || !selectedCrop) {
-      setTimeout(() => {
-        navigation.navigate('PlotForm');
-      }, 0);
-      return;
-    }
-    
-    requestLocationPermission();
-  }, [farmerId, selectedCrop, navigation]);
-
-  const requestLocationPermission = useCallback(async () => {
-    if (Platform.OS === 'android') {
-      try {
-        const granted = await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-          {
-            title: 'Location Permission',
-            message: 'This app needs access to location to help with crop analysis.',
-            buttonNeutral: 'Ask Me Later',
-            buttonNegative: 'Cancel',
-            buttonPositive: 'OK',
-          }
-        );
-        if (granted === PermissionsAndroid.RESULTS.GRANTED) {
-          getCurrentLocation();
-        }
-      } catch (err) {
-        console.warn(err);
-      }
-    }
-  }, []);
+  
+  const { farmerId, selectedCrop } = route.params || {};
 
   const getCurrentLocation = useCallback(() => {
     Geolocation.getCurrentPosition(
@@ -85,6 +45,65 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
     );
   }, []);
 
+  const requestLocationPermission = useCallback(async () => {
+    if (Platform.OS === 'android') {
+      try {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+          {
+            title: 'Location Permission',
+            message: 'This app needs access to location to help with crop analysis.',
+            buttonNeutral: 'Ask Me Later',
+            buttonNegative: 'Cancel',
+            buttonPositive: 'OK',
+          }
+        );
+
+        if (granted === PermissionsAndroid.RESULTS.GRANTED) {
+          getCurrentLocation();
+        }
+      } catch (err) {
+        console.warn(err);
+      }
+    } else {
+      // iOS
+      getCurrentLocation();
+    }
+  }, [getCurrentLocation]);
+
+  useEffect(() => {
+    if (!farmerId || !selectedCrop) {
+      navigation.navigate('PlotForm');
+      return;
+    }
+
+    requestLocationPermission();
+  }, [farmerId, selectedCrop, navigation, requestLocationPermission]);
+
+  const [region, setRegion] = useState({
+    latitude: 23.1989, // Default start location
+    longitude: 77.09443,
+    latitudeDelta: 0.01,
+    longitudeDelta: 0.01,
+  });
+
+
+  const [points, setPoints] = useState<{ latitude: number; longitude: number }[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState('Analyzing crop data...');
+  const mapRef = useRef<MapView>(null);
+
+  useEffect(() => {
+    if (!farmerId || !selectedCrop) {
+      setTimeout(() => {
+        navigation.navigate('PlotForm');
+      }, 0);
+      return;
+    }
+
+    requestLocationPermission();
+  }, [farmerId, selectedCrop, navigation, requestLocationPermission]);
+
   // Optimized map press handler
   const handleMapPress = useCallback((e: any) => {
     const { latitude, longitude } = e.nativeEvent.coordinate;
@@ -95,65 +114,88 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
     setPoints([]);
   }, []);
 
-  // ✅ FIXED: Handle analysis with proper coordinates format
-  const handleConfirm = async () => {
+  const handleConfirm = useCallback(async () => {
     if (points.length < 3) {
-      Alert.alert('Error', 'Please draw a valid plot with at least 3 points');
+      Alert.alert('⚠️ Not enough points', 'Draw at least 3 points to create a plot');
       return;
     }
 
-    try {
-      setIsLoading(true);
-      
-      // ✅ FIXED: Use 'points' state instead of undefined 'polygonPoints'
-      const coordinates = points.map(point => ({
-        longitude: point.longitude,
-        latitude: point.latitude
-      }));
-      
-      // Validate coordinates
-      if (!coordinates || !Array.isArray(coordinates) || coordinates.length < 3) {
-        Alert.alert('Error', 'Please draw a valid plot with at least 3 points');
-        return;
-      }
-      
-      // ✅ FIXED: Use correct API_BASE_URL (define it properly)
-      const API_BASE_URL = __DEV__ 
-        ? 'http://192.168.31.20:3001' 
-        : 'https://your-koyeb-app.koyeb.app'; // Replace with your actual Koyeb URL
+    setIsLoading(true);
+    setLoadingMessage('Loading results using satellite data...');
 
-      // Send to backend
-      const response = await fetch(`${API_BASE_URL}/api/run-model`, {
+    try {
+      // Get unique coordinates
+      const uniqueCoordinates = points.map(p => ({
+        latitude: p.latitude,
+        longitude: p.longitude
+      }));
+
+      // Close polygon if not already closed
+      if (uniqueCoordinates.length >= 3) {
+        const firstPoint = uniqueCoordinates[0];
+        const lastPoint = uniqueCoordinates[uniqueCoordinates.length - 1];
+
+        if (firstPoint.latitude !== lastPoint.latitude || firstPoint.longitude !== lastPoint.longitude) {
+          uniqueCoordinates.push(firstPoint);
+        }
+      }
+
+      // Save plot to database
+      const saveResponse = await apiFetch(`/api/save-plot`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          farmerId: farmerId,
-          cropType: selectedCrop,
-          coordinates: coordinates  // ✅ FIXED: Send array of {longitude, latitude} objects
+          farmerId,
+          plotCoordinates: uniqueCoordinates.map(p => [p.latitude, p.longitude]),
+          cropType: selectedCrop
         }),
       });
-      
-      const data = await response.json();
-      
-      if (data.success) {
-        navigation.navigate('Results', {
-          farmerId: farmerId,
-          cropType: selectedCrop,
-          results: data
-        });
-      } else {
-        Alert.alert('Error', data.error || 'Failed to run model');
+
+      if (!saveResponse.ok) {
+        const errorText = await saveResponse.text();
+        throw new Error(`HTTP ${saveResponse.status}: ${errorText}`);
       }
-      
-    } catch (error) {
+
+      // Get model results from backend
+      // model prediction may take a while, give it up to 60 seconds
+      const response = await apiFetch(
+        `/api/run-model`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            farmerId,
+            cropType: selectedCrop,
+          }),
+        },
+        60000 // 60 second timeout
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+
+      const results = await response.json();
+
+      navigation.navigate('Results', {
+        farmerId,
+        cropType: selectedCrop,
+        plotCoordinates: uniqueCoordinates,
+        modelResults: results
+      });
+
+    } catch (error: any) {
       console.error('Model error:', error);
-      Alert.alert('Error', 'Failed to run model');
+      // show a more helpful error message if available
+      Alert.alert(
+        '❌ Analysis failed',
+        error?.message || 'Failed to analyze crop. Please try again.'
+      );
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [points, farmerId, selectedCrop, navigation]);
 
   // Optimized region change handler
   const handleRegionChange = useCallback((newRegion: any) => {
@@ -161,7 +203,7 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
     setRegion(newRegion);
   }, []);
 
-  const { width, height } = Dimensions.get('window');
+  const { height } = Dimensions.get('window');
   const mapHeight = height * 0.8;
 
   if (!farmerId || !selectedCrop) {
@@ -196,6 +238,8 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
         zoomEnabled={true}
         pitchEnabled={false}
         rotateEnabled={false}
+        mapType="satellite"
+      // Remove unnecessary props that cause re-renders
       >
         {points.map((point, index) => (
           <Marker
@@ -204,7 +248,7 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
             pinColor="red"
           />
         ))}
-        
+
         {points.length >= 3 && (
           <Polygon
             coordinates={points}
@@ -225,10 +269,7 @@ export default function MapScreen({ route, navigation }: MapScreenProps) {
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[
-            styles.confirmButton,
-            points.length < 3 ? styles.confirmButtonDisabled : null
-          ]}
+          style={styles.confirmButton}
           onPress={handleConfirm}
           disabled={points.length < 3}
         >
@@ -313,7 +354,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   confirmButtonDisabled: {
-    backgroundColor: '#cccccc',
+    backgroundColor: '#8BC34A',
   },
   confirmButtonText: {
     color: 'white',

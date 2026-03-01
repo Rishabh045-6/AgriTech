@@ -1,0 +1,198 @@
+{
+  "crop_name": "chickpea",
+  "DISEASE_RISK_ADVICE": {
+    "levels": [
+      {
+        "level": "low",
+        "recommendations": {
+          "general": "Low disease pressure observed in the last satellite pass.\n\nRegular field inspection recommended every 7–10 days.\n\nNo fungicide application currently required.",
+          "vegetative": "Ensure good drainage — chickpea is highly sensitive to waterlogging.",
+          "reproductive": "Low disease pressure observed in the last satellite pass.\n\nRegular field inspection recommended every 7–10 days.\n\nNo fungicide application currently required.",
+          "ripening": "Low disease pressure observed in the last satellite pass.\n\nRegular field inspection recommended every 7–10 days.\n\nNo fungicide application currently required."
+        }
+      },
+      {
+        "level": "medium",
+        "recommendations": {
+          "general": "Conditions favorable for disease development were indicated.\n\nInspect plants for wilting, root rot symptoms, and leaf spots.\n\nAvoid irrigation unless absolutely necessary.",
+          "vegetative": "Early detection can prevent plant mortality.",
+          "reproductive": "⚠️ Disease at this stage can reduce flower and pod formation.",
+          "ripening": "Focus on preventing disease spread to healthy areas."
+        }
+      },
+      {
+        "level": "high",
+        "recommendations": {
+          "general": "High disease risk was indicated in the last observation.\n\nField inspection is recommended to verify current conditions.\n\nApply recommended fungicide only if symptoms are clearly visible and confirmed.",
+          "vegetative": "Prompt action can prevent crop stand loss if disease is confirmed.",
+          "reproductive": "🚨 Critical — disease confirmed now can severely affect pod set.",
+          "ripening": "Recovery limited — focus on containment if disease is present."
+        }
+      }
+    ]
+  },
+  "PEST_RISK_ADVICE": {
+    "levels": [
+      {
+        "level": "low",
+        "recommendations": {
+          "general": "Pest activity appeared minimal in the last observation.\n\nNo pest control currently needed.\n\nEncourage natural enemies.",
+          "vegetative": "Pest activity appeared minimal in the last observation.\n\nNo pest control currently needed.\n\nEncourage natural enemies.",
+          "reproductive": "Pest activity appeared minimal in the last observation.\n\nNo pest control currently needed.\n\nEncourage natural enemies.",
+          "ripening": "Pest activity appeared minimal in the last observation.\n\nNo pest control currently needed.\n\nEncourage natural enemies."
+        }
+      },
+      {
+        "level": "medium",
+        "recommendations": {
+          "general": "Pest-favorable conditions were detected.\n\nMonitor for pod borer (especially), aphids, and leaf feeders.\n\nUse pheromone traps if available to assess current population.",
+          "vegetative": "Leaf damage is usually recoverable if detected early.",
+          "reproductive": "⚠️ Pod borer damage can directly reduce yield if present.",
+          "ripening": "Avoid spraying unless infestation has increased since last observation."
+        }
+      },
+      {
+        "level": "high",
+        "recommendations": {
+          "general": "High pest risk was indicated in the last satellite data.\n\nField scouting is recommended to verify current pest population.\n\nIf pest population crosses economic threshold upon verification, apply targeted insecticide.\n\n⚠️ Avoid repeated spraying — resistance develops quickly in chickpea pests.",
+          "vegetative": "High pest risk was indicated. Verify current field conditions.",
+          "reproductive": "High pest risk was indicated. Verify current field conditions.",
+          "ripening": "High pest risk was indicated. Verify current field conditions."
+        }
+      }
+    ]
+  },
+  "IRRIGATION_WATER_STRESS_ADVICE": {
+    "levels": [
+      {
+        "level": "optimal",
+        "recommendations": {
+          "general": "Soil moisture appeared adequate in the last observation.\n\nNo irrigation required based on available data.\n\nAvoid standing water completely.",
+          "vegetative": "Soil moisture appeared adequate in the last observation.\n\nNo irrigation required based on available data.\n\nAvoid standing water completely.",
+          "reproductive": "Soil moisture appeared adequate in the last observation.\n\nNo irrigation required based on available data.\n\nAvoid standing water completely.",
+          "ripening": "Soil moisture appeared adequate in the last observation.\n\nNo irrigation required based on available data.\n\nAvoid standing water completely."
+        }
+      },
+      {
+        "level": "mild",
+        "recommendations": {
+          "general": "Early signs of moisture stress were observed.\n\nMonitor crop condition.\n\nIrrigation usually not required at this stage unless stress persists.",
+          "vegetative": "Chickpea tolerates mild stress well.",
+          "reproductive": "⚠️ Avoid prolonged stress at this sensitive stage.",
+          "ripening": "Mild stress is acceptable at this stage."
+        }
+      },
+      {
+        "level": "moderate",
+        "recommendations": {
+          "general": "Moisture stress affecting crop performance was detected.\n\nProvide light irrigation if dry conditions have persisted since observation.\n\nEnsure rapid drainage after irrigation.",
+          "vegetative": "Moisture stress affecting crop performance was detected.\n\nProvide light irrigation if dry conditions have persisted since observation.\n\nEnsure rapid drainage after irrigation.",
+          "reproductive": "🚨 Irrigate carefully if stress continues, to protect flowering and pod formation.",
+          "ripening": "Moisture stress affecting crop performance was detected.\n\nProvide light irrigation if dry conditions have persisted since observation.\n\nEnsure rapid drainage after irrigation."
+        }
+      },
+      {
+        "level": "severe",
+        "recommendations": {
+          "general": "Severe moisture deficit was detected in the last satellite pass.\n\nIf no irrigation or significant rainfall has occurred since then, provide life-saving irrigation as practical.\n\nApply water slowly to avoid waterlogging.",
+          "vegetative": "Severe moisture deficit was detected. If dry conditions continue, irrigate promptly.",
+          "reproductive": "High risk of flower drop and poor pod filling if severe stress continues.",
+          "ripening": "Severe moisture deficit was detected. If dry conditions continue, irrigate promptly."
+        }
+      }
+    ]
+  },
+  "GENERAL_NUTRIENT_STRESS_ADVICE": {
+    "levels": [
+      {
+        "level": "low",
+        "recommendations": {
+          "general": "Nutrient status appeared balanced in the last observation.\n\nNo corrective action currently needed.",
+          "vegetative": "Nutrient status appeared balanced in the last observation.\n\nNo corrective action currently needed.",
+          "reproductive": "Nutrient status appeared balanced in the last observation.\n\nNo corrective action currently needed.",
+          "ripening": "Nutrient status appeared balanced in the last observation.\n\nNo corrective action currently needed."
+        }
+      },
+      {
+        "level": "moderate",
+        "recommendations": {
+          "general": "Early nutrient stress indicators were observed.\n\nReview soil fertility and micronutrient status.\n\nAvoid heavy fertilizer application unless deficiency is confirmed.",
+          "vegetative": "Minor correction possible if deficiency is verified.",
+          "reproductive": "Limited response expected from nutrient correction at this stage.",
+          "ripening": "Avoid nutrient application during ripening."
+        }
+      },
+      {
+        "level": "high",
+        "recommendations": {
+          "general": "Significant nutrient stress indicators were detected.\n\nCorrective action may be required if deficiency is confirmed.\n\nPrefer foliar micronutrient sprays (Zn, Fe if needed) for faster response.\n\n⚠️ Avoid heavy nitrogen and phosphorus application if not confirmed needed.",
+          "vegetative": "Significant nutrient stress indicators were detected.\n\nCorrective action may be required if deficiency is confirmed.\n\nPrefer foliar micronutrient sprays (Zn, Fe if needed) for faster response.\n\n⚠️ Avoid heavy nitrogen and phosphorus application if not confirmed needed.",
+          "reproductive": "Significant nutrient stress indicators were detected.\n\nCorrective action may be required if deficiency is confirmed.\n\nPrefer foliar micronutrient sprays (Zn, Fe if needed) for faster response.\n\n⚠️ Avoid heavy nitrogen and phosphorus application if not confirmed needed.",
+          "ripening": "Significant nutrient stress indicators were detected.\n\nCorrective action may be required if deficiency is confirmed.\n\nPrefer foliar micronutrient sprays (Zn, Fe if needed) for faster response.\n\n⚠️ Avoid heavy nitrogen and phosphorus application if not confirmed needed."
+        }
+      }
+    ]
+  },
+  "NITROGEN_STATUS_ADVICE": {
+    "levels": [
+      {
+        "level": "adequate",
+        "recommendations": {
+          "general": "Nitrogen status appeared sufficient in the last observation.\n\nNo nitrogen application required.\n\nHealthy nodulation expected.",
+          "vegetative": "Nitrogen status appeared sufficient in the last observation.\n\nNo nitrogen application required.\n\nHealthy nodulation expected.",
+          "reproductive": "Nitrogen status appeared sufficient in the last observation.\n\nNo nitrogen application required.\n\nHealthy nodulation expected.",
+          "ripening": "Nitrogen status appeared sufficient in the last observation.\n\nNo nitrogen application required.\n\nHealthy nodulation expected."
+        }
+      },
+      {
+        "level": "moderate_deficiency",
+        "recommendations": {
+          "general": "Mild nitrogen stress was indicated.\n\nCheck root nodulation for confirmation.\n\nApply only light starter nitrogen if poor nodulation is confirmed.",
+          "vegetative": "Very limited benefit from nitrogen application.",
+          "reproductive": "❌ Nitrogen application not recommended at this stage.",
+          "ripening": "❌ No nitrogen application at this stage."
+        }
+      },
+      {
+        "level": "high_deficiency",
+        "recommendations": {
+          "general": "Significant nitrogen stress was indicated in the last observation.\n\nDo not apply heavy nitrogen fertilizer.\n\nFocus on improving root health and soil moisture conditions.\n\nConsider foliar micronutrients instead if deficiency is confirmed.",
+          "vegetative": "Significant nitrogen stress was indicated. Do not apply heavy nitrogen.\n\nFocus on improving root health and soil moisture conditions.\n\nConsider foliar micronutrients instead if deficiency is confirmed.",
+          "reproductive": "Significant nitrogen stress was indicated. Do not apply heavy nitrogen.\n\nFocus on improving root health and soil moisture conditions.\n\nConsider foliar micronutrients instead if deficiency is confirmed.",
+          "ripening": "Significant nitrogen stress was indicated. Do not apply heavy nitrogen.\n\nFocus on improving root health and soil moisture conditions.\n\nConsider foliar micronutrients instead if deficiency is confirmed."
+        }
+      }
+    ]
+  },
+  "CHLOROPHYLL_STATUS_ADVICE": {
+    "levels": [
+      {
+        "level": "optimal",
+        "recommendations": {
+          "general": "Chlorophyll levels appeared healthy in the last observation.\n\nPhotosynthesis was functioning normally.",
+          "vegetative": "Chlorophyll levels appeared healthy in the last observation.\n\nPhotosynthesis was functioning normally.",
+          "reproductive": "Chlorophyll levels appeared healthy in the last observation.\n\nPhotosynthesis was functioning normally.",
+          "ripening": "Chlorophyll levels appeared healthy in the last observation.\n\nPhotosynthesis was functioning normally."
+        }
+      },
+      {
+        "level": "moderate",
+        "recommendations": {
+          "general": "Slight reduction in chlorophyll was detected.\n\nMonitor yellowing, especially lower leaves, for confirmation.\n\nReview micronutrient availability if symptoms persist.",
+          "vegetative": "Partial recovery possible if deficiency is addressed.",
+          "reproductive": "May affect pod filling if chlorophyll levels remain low.",
+          "ripening": "Gradual decline in chlorophyll is normal at this stage."
+        }
+      },
+      {
+        "level": "low",
+        "recommendations": {
+          "general": "Low chlorophyll levels were detected in the last observation.\n\nReduced photosynthesis is likely if condition persists.\n\nFoliar micronutrient spray may help if applied early and deficiency is confirmed.",
+          "vegetative": "Some recovery possible if deficiency is confirmed and addressed.",
+          "reproductive": "Yield loss likely if low chlorophyll persists through this stage.",
+          "ripening": "Mostly irreversible at this stage — focus on preventing further stress."
+        }
+      }
+    ]
+  }
+}
